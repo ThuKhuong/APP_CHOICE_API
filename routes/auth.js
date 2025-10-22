@@ -6,7 +6,7 @@ const pool = require("../db");
 const router = express.Router();
 const SECRET = "secret123"; //  .env
 
-// Đăng ký sinh viên
+// Đăng ký 
 router.post("/register", async (req, res) => {
   const { full_name, email, password } = req.body;
 

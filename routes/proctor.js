@@ -7,7 +7,7 @@ const router = express.Router();
 router.get(
   "/dashboard",
   requireAuth,
-  allowRoles("teacher"),
+  allowRoles("teacher", "proctor"),
   async (req, res) => {
     try {
       // Lấy ca thi đang diễn ra
@@ -134,7 +134,7 @@ router.get(
 router.get(
   "/assigned-sessions",
   requireAuth,
-  allowRoles("teacher"),
+  allowRoles("teacher", "proctor"),
   async (req, res) => {
     try {
       const query = `
@@ -170,7 +170,7 @@ router.get(
 router.get(
   "/sessions/:sessionId/details",
   requireAuth,
-  allowRoles("teacher"),
+  allowRoles("teacher", "proctor"),
   async (req, res) => {
     const { sessionId } = req.params;
 
@@ -248,7 +248,7 @@ router.get(
 router.post(
   "/violations",
   requireAuth,
-  allowRoles("teacher"),
+  allowRoles("teacher", "proctor"),
   async (req, res) => {
     const { studentId, sessionId, type, description } = req.body;
 
@@ -303,7 +303,7 @@ router.post(
 router.post(
   "/incidents",
   requireAuth,
-  allowRoles("teacher"),
+  allowRoles("teacher", "proctor"),
   async (req, res) => {
     const { studentId, sessionId, description } = req.body;
 
@@ -339,7 +339,7 @@ router.post(
 router.get(
   "/students/:studentId/monitor",
   requireAuth,
-  allowRoles("teacher"),
+  allowRoles("teacher", "proctor"),
   async (req, res) => {
     const { studentId } = req.params;
     const { sessionId } = req.query;
@@ -438,7 +438,7 @@ router.get(
 router.patch(
   "/students/:studentId/force-submit",
   requireAuth,
-  allowRoles("teacher"),
+  allowRoles("teacher", "proctor"),
   async (req, res) => {
     const { studentId } = req.params;
     const { sessionId } = req.body;
@@ -458,11 +458,9 @@ router.patch(
       const result = await pool.query(query, [studentId, sessionId]);
 
       if (result.rows.length === 0) {
-        return res
-          .status(404)
-          .json({
-            message: "Không tìm thấy bài thi hoặc sinh viên đã nộp bài",
-          });
+        return res.status(404).json({
+          message: "Không tìm thấy bài thi hoặc sinh viên đã nộp bài",
+        });
       }
 
       res.json({
@@ -480,7 +478,7 @@ router.patch(
 router.patch(
   "/incidents/:incidentId/resolve",
   requireAuth,
-  allowRoles("teacher"),
+  allowRoles("teacher", "proctor"),
   async (req, res) => {
     const { incidentId } = req.params;
 

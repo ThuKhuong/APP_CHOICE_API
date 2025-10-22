@@ -6,14 +6,12 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const router = express.Router();
 
-// 1. AUTH - Đăng nhập và đăng kí
+// Đăng ký tài khoản giáo viên
 router.post("/auth/register", async (req, res) => {
   const { full_name, email, password } = req.body;
-
   if (!full_name || !email || !password) {
     return res.status(400).json({ message: "Thiếu thông tin" });
   }
-
   try {
     // Kiểm tra email trùng
     const existing = await pool.query("SELECT * FROM users WHERE email = $1", [
@@ -22,10 +20,8 @@ router.post("/auth/register", async (req, res) => {
     if (existing.rows.length > 0) {
       return res.status(400).json({ message: "Email đã được sử dụng" });
     }
-
     // Mã hóa mật khẩu
     const hashedPassword = await bcrypt.hash(password, 10);
-
     // Thêm tài khoản giáo viên
     const result = await pool.query(
       `INSERT INTO users (full_name, email, password_hash, role)
@@ -33,59 +29,108 @@ router.post("/auth/register", async (req, res) => {
        RETURNING id, full_name, email, role`,
       [full_name, email, hashedPassword]
     );
-
     const user = result.rows[0];
-    const jwt = require("jsonwebtoken");
-    const SECRET = process.env.JWT_SECRET || "secret123";
+    // Tạo token đăng nhập ngay sau khi đăng ký
+    const SECRET = "secret123";
     const token = jwt.sign({ id: user.id, role: user.role }, SECRET, {
       expiresIn: "2h",
     });
-
-    res
-      .status(201)
-      .json({ message: "Đăng ký giáo viên thành công", token, user });
+    res.status(201).json({ message: "Đăng ký thành công", token, user });
   } catch (err) {
     console.error("Lỗi đăng ký giáo viên:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
 });
-// Đăng nhập
+
+// Đăng nhập giáo viên
 router.post("/auth/login", async (req, res) => {
   const { email, password } = req.body;
-
+  if (!email || !password) {
+    return res.status(400).json({ message: "Thiếu thông tin đăng nhập" });
+  }
   try {
-    // Tìm user theo email
-    const result = await pool.query("SELECT * FROM users WHERE email=$1", [
-      email,
-    ]);
-    const user = result.rows[0];
-
-    // Nếu không tồn tại user
-    if (!user) {
-      return res.status(401).json({ message: "Email không tồn tại" });
+    const result = await pool.query(
+      "SELECT * FROM users WHERE email = $1 AND role = 'teacher'",
+      [email]
+    );
+    if (result.rows.length === 0) {
+      return res
+        .status(401)
+        .json({ message: "Email hoặc mật khẩu không đúng" });
     }
-
+    const user = result.rows[0];
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
-      return res.status(401).json({ message: "Sai mật khẩu" });
+      return res
+        .status(401)
+        .json({ message: "Email hoặc mật khẩu không đúng" });
     }
-    // Tạo token JWT
-    const token = jwt.sign(
-      { id: user.id, role: user.role },
-      process.env.JWT_SECRET || "secret123",
-      { expiresIn: "2h" }
-    );
-
-    // Gửi phản hồi thành công
-    res.json({ token });
+    const SECRET = "secret123";
+    const token = jwt.sign({ id: user.id, role: user.role }, SECRET, {
+      expiresIn: "2h",
+    });
+    res.json({
+      message: "Đăng nhập thành công",
+      token,
+      user: {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        role: user.role,
+      },
+    });
   } catch (err) {
-    console.error("Lỗi đăng nhập:", err.message);
+    console.error("Lỗi đăng nhập giáo viên:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
 });
-
-//  2. SUBJECTS - Môn học
-
+// Lưu phân bổ số câu hỏi theo chương cho 1 exam_set
+router.post(
+  "/exam-sets/:examSetId/chapter-distribution",
+  requireAuth,
+  allowRoles("teacher"),
+  async (req, res) => {
+    const { examSetId } = req.params;
+    const { distribution } = req.body; // [{chapter_id, num_questions}, ...]
+    if (!Array.isArray(distribution) || distribution.length === 0) {
+      return res.status(400).json({ message: "Thiếu dữ liệu phân bổ chương" });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Xóa phân bổ cũ nếu có
+      await client.query(
+        "DELETE FROM exam_chapter_distribution WHERE exam_set_id = $1",
+        [examSetId]
+      );
+      // Thêm mới
+      for (const item of distribution) {
+        if (
+          !item.chapter_id ||
+          !item.num_questions ||
+          item.num_questions <= 0
+        ) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ message: "Dữ liệu không hợp lệ" });
+        }
+        await client.query(
+          `INSERT INTO exam_chapter_distribution (exam_set_id, chapter_id, num_questions)
+           VALUES ($1, $2, $3)`,
+          [examSetId, item.chapter_id, item.num_questions]
+        );
+      }
+      await client.query("COMMIT");
+      res.json({ message: "Lưu phân bổ chương thành công" });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("Lỗi lưu phân bổ chương:", err.message);
+      res.status(500).json({ message: "Lỗi server" });
+    } finally {
+      client.release();
+    }
+  }
+);
+//  1. SUBJECTS - Môn học
 // Tạo môn học mới
 router.post(
   "/subjects",
@@ -96,11 +141,18 @@ router.post(
     if (!name) return res.status(400).json({ message: "Thiếu tên môn học" });
 
     try {
+      // Kiểm tra tên môn học đã tồn tại cho giáo viên này chưa
+      const exist = await pool.query(
+        "SELECT 1 FROM subjects WHERE name = $1 AND teacher_id = $2",
+        [name, req.user.id]
+      );
+      if (exist.rows.length > 0) {
+        return res.status(409).json({ message: "Tên môn học đã tồn tại" });
+      }
       const result = await pool.query(
         "INSERT INTO subjects (name, teacher_id) VALUES ($1, $2) RETURNING *",
         [name, req.user.id]
       );
-      // Trả về ID môn học vừa tạo để frontend có thể mở modal thêm chương
       res.status(201).json({ subject: result.rows[0] });
     } catch (err) {
       console.error("Lỗi thêm môn học:", err.message);
@@ -120,7 +172,7 @@ router.get(
         "SELECT id, name FROM subjects WHERE teacher_id=$1 ORDER BY id ASC",
         [req.user.id]
       );
-      res.json(result.rows);
+      res.status(200).json(result.rows);
     } catch (err) {
       console.error("Lỗi lấy môn học:", err.message);
       res.status(500).json({ message: "Lỗi server" });
@@ -129,6 +181,7 @@ router.get(
 );
 
 // Cập nhật môn học
+// Sửa môn học 
 router.put(
   "/subjects/:id",
   requireAuth,
@@ -139,13 +192,21 @@ router.put(
     if (!name) return res.status(400).json({ message: "Thiếu tên môn học" });
 
     try {
+      // Kiểm tra tên trùng (trừ chính nó)
+      const exist = await pool.query(
+        "SELECT 1 FROM subjects WHERE name = $1 AND teacher_id = $2 AND id <> $3",
+        [name, req.user.id, id]
+      );
+      if (exist.rows.length > 0) {
+        return res.status(409).json({ message: "Tên môn học đã tồn tại" });
+      }
       const result = await pool.query(
         "UPDATE subjects SET name=$1 WHERE id=$2 AND teacher_id=$3 RETURNING *",
         [name, id, req.user.id]
       );
       if (result.rows.length === 0)
         return res.status(404).json({ message: "Không tìm thấy môn học" });
-      res.json(result.rows[0]);
+      res.status(200).json(result.rows[0]);
     } catch (err) {
       console.error("Lỗi cập nhật môn học:", err.message);
       res.status(500).json({ message: "Lỗi server" });
@@ -167,7 +228,8 @@ router.delete(
       );
       if (result.rows.length === 0)
         return res.status(404).json({ message: "Không tìm thấy môn học" });
-      res.json({ message: "Đã xóa thành công" });
+      // 204 No Content
+      res.status(204).send();
     } catch (err) {
       console.error("Lỗi xóa môn học:", err.message);
       res.status(500).json({ message: "Lỗi server" });
@@ -184,13 +246,12 @@ router.get(
   allowRoles("teacher"),
   async (req, res) => {
     const { subjectId } = req.params;
-
     try {
       const result = await pool.query(
         "SELECT * FROM chapters WHERE subject_id=$1 ORDER BY chapter_number ASC",
         [subjectId]
       );
-      res.json(result.rows);
+      res.status(200).json(result.rows);
     } catch (err) {
       console.error("Lỗi lấy danh sách chương:", err.message);
       res.status(500).json({ message: "Lỗi server" });
@@ -205,7 +266,7 @@ router.post(
   allowRoles("teacher"),
   async (req, res) => {
     const { subjectId } = req.params;
-    const { name, chapter_number, description } = req.body;
+    const { name, chapter_number } = req.body;
 
     if (!name || !chapter_number) {
       return res.status(400).json({ message: "Thiếu tên hoặc số chương" });
@@ -213,8 +274,8 @@ router.post(
 
     try {
       const result = await pool.query(
-        "INSERT INTO chapters (subject_id, name, chapter_number, description) VALUES ($1, $2, $3, $4) RETURNING *",
-        [subjectId, name, chapter_number, description]
+        "INSERT INTO chapters (subject_id, name, chapter_number) VALUES ($1, $2, $3) RETURNING *",
+        [subjectId, name, chapter_number]
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
@@ -231,16 +292,16 @@ router.put(
   allowRoles("teacher"),
   async (req, res) => {
     const { id } = req.params;
-    const { name, chapter_number, description } = req.body;
+    const { name, chapter_number } = req.body;
 
     try {
       const result = await pool.query(
-        "UPDATE chapters SET name=$1, chapter_number=$2, description=$3 WHERE id=$4 RETURNING *",
-        [name, chapter_number, description, id]
+        "UPDATE chapters SET name=$1, chapter_number=$2 WHERE id=$3 RETURNING *",
+        [name, chapter_number, id]
       );
       if (result.rows.length === 0)
         return res.status(404).json({ message: "Không tìm thấy chương" });
-      res.json(result.rows[0]);
+      res.status(200).json(result.rows[0]);
     } catch (err) {
       console.error("Lỗi cập nhật chương:", err.message);
       res.status(500).json({ message: "Lỗi server" });
@@ -262,7 +323,7 @@ router.delete(
       );
       if (result.rows.length === 0)
         return res.status(404).json({ message: "Không tìm thấy chương" });
-      res.json({ message: "Đã xóa chương thành công" });
+      res.status(204).send();
     } catch (err) {
       console.error("Lỗi xóa chương:", err.message);
       res.status(500).json({ message: "Lỗi server" });
@@ -278,47 +339,67 @@ router.post(
   requireAuth,
   allowRoles("teacher"),
   async (req, res) => {
-    const {
-      subject_id,
-      chapter_id,
-      text,
-      choice_a,
-      choice_b,
-      choice_c,
-      choice_d,
-      correct_choice,
-    } = req.body;
+    const { subject_id, chapter_id, content, answers } = req.body;
+
+
     if (
       !subject_id ||
       !chapter_id ||
-      !text ||
-      !choice_a ||
-      !choice_b ||
-      !choice_c ||
-      !choice_d ||
-      !correct_choice
+      !content ||
+      !answers ||
+      answers.length < 2
     )
-      return res.status(400).json({ message: "Thiếu dữ liệu câu hỏi" });
+      return res
+        .status(400)
+        .json({ message: "Thiếu dữ liệu câu hỏi hoặc đáp án" });
 
+    // Validation: Phải có ít nhất 1 đáp án đúng
+    const hasCorrectAnswer = answers.some(
+      (answer) => answer.is_correct === true
+    );
+    if (!hasCorrectAnswer) {
+      return res.status(400).json({
+        message: "Phải có ít nhất 1 đáp án đúng",
+      });
+    }
+
+    const client = await pool.connect();
     try {
-      const result = await pool.query(
-        `INSERT INTO questions (subject_id, chapter_id, text, choice_a, choice_b, choice_c, choice_d, correct_choice)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [
-          subject_id,
-          chapter_id,
-          text,
-          choice_a,
-          choice_b,
-          choice_c,
-          choice_d,
-          correct_choice,
-        ]
+      await client.query("BEGIN");
+
+      // Tạo câu hỏi
+      const questionResult = await client.query(
+        `INSERT INTO questions (subject_id, chapter_id, content) VALUES ($1, $2, $3) RETURNING *`,
+        [subject_id, chapter_id, content]
       );
-      res.status(201).json(result.rows[0]);
+      const questionId = questionResult.rows[0].id;
+
+      // Thêm các đáp án
+      
+      for (let i = 0; i < answers.length; i++) {
+        // Tạo label động: A, B, C, D, E, F
+        const label = String.fromCharCode(65 + i); // 65 = 'A'.charCodeAt(0)
+
+        await client.query(
+          `INSERT INTO answers (question_id, label, content, is_correct) VALUES ($1, $2, $3, $4)`,
+          [
+            questionId,
+            label,
+            answers[i].content,
+            answers[i].is_correct || false,
+          ]
+        );
+      }
+
+      await client.query("COMMIT");
+      res.status(201).json(questionResult.rows[0]);
     } catch (err) {
-      console.error("Lỗi thêm câu hỏi:", err.message);
-      res.status(500).json({ message: "Lỗi server" });
+      await client.query("ROLLBACK");
+      console.error("❌ Lỗi thêm câu hỏi:", err.message);
+      console.error("❌ Stack trace:", err.stack);
+      res.status(500).json({ message: "Lỗi server", error: err.message });
+    } finally {
+      client.release();
     }
   }
 );
@@ -334,12 +415,22 @@ router.get(
         `SELECT q.*, s.name AS subject_name, c.name AS chapter_name, c.id AS chapter_id
        FROM questions q
        JOIN subjects s ON q.subject_id = s.id
-       JOIN chapters c ON q.chapter_id = c.id
+       LEFT JOIN chapters c ON q.chapter_id = c.id
        WHERE s.teacher_id = $1
        ORDER BY q.id DESC`,
         [req.user.id]
       );
-      res.json(result.rows);
+
+      // Lấy đáp án cho từng câu hỏi
+      for (let question of result.rows) {
+        const answers = await pool.query(
+          `SELECT * FROM answers WHERE question_id = $1 ORDER BY label`,
+          [question.id]
+        );
+        question.answers = answers.rows;
+      }
+
+      res.status(200).json(result.rows);
     } catch (err) {
       console.error("Lỗi lấy câu hỏi:", err.message);
       res.status(500).json({ message: "Lỗi server" });
@@ -347,20 +438,77 @@ router.get(
   }
 );
 
-// Lấy câu hỏi theo môn học
+// Lấy câu hỏi theo môn học với filter chương
 router.get(
   "/questions/:subjectId",
   requireAuth,
   allowRoles("teacher"),
   async (req, res) => {
+    const { subjectId } = req.params;
+    const { chapter_id } = req.query; // ?chapter_id=123 để lọc theo chương
+
     try {
-      const result = await pool.query(
-        "SELECT * FROM questions WHERE subject_id=$1 ORDER BY id ASC",
-        [req.params.subjectId]
-      );
-      res.json(result.rows);
+      let query =
+        "SELECT q.*, c.name AS chapter_name FROM questions q LEFT JOIN chapters c ON q.chapter_id = c.id WHERE q.subject_id=$1";
+      let params = [subjectId];
+
+      if (chapter_id) {
+        query += " AND q.chapter_id=$2";
+        params.push(chapter_id);
+      }
+
+      query += " ORDER BY q.id ASC";
+
+      const result = await pool.query(query, params);
+
+      // Lấy đáp án cho từng câu hỏi
+      for (let question of result.rows) {
+        const answers = await pool.query(
+          `SELECT * FROM answers WHERE question_id = $1 ORDER BY label`,
+          [question.id]
+        );
+        question.answers = answers.rows;
+      }
+
+      res.status(200).json(result.rows);
     } catch (err) {
       console.error("Lỗi lấy câu hỏi theo môn:", err.message);
+      res.status(500).json({ message: "Lỗi server" });
+    }
+  }
+);
+
+// Lấy câu hỏi theo chương cụ thể
+router.get(
+  "/chapters/:chapterId/questions",
+  requireAuth,
+  allowRoles("teacher"),
+  async (req, res) => {
+    const { chapterId } = req.params;
+
+    try {
+      const result = await pool.query(
+        `SELECT q.*, c.name AS chapter_name, s.name AS subject_name
+         FROM questions q 
+         JOIN chapters c ON q.chapter_id = c.id
+         JOIN subjects s ON q.subject_id = s.id
+         WHERE q.chapter_id = $1 AND s.teacher_id = $2
+         ORDER BY q.id ASC`,
+        [chapterId, req.user.id]
+      );
+
+      // Lấy đáp án cho từng câu hỏi
+      for (let question of result.rows) {
+        const answers = await pool.query(
+          `SELECT * FROM answers WHERE question_id = $1 ORDER BY label`,
+          [question.id]
+        );
+        question.answers = answers.rows;
+      }
+
+      res.status(200).json(result.rows);
+    } catch (err) {
+      console.error("Lỗi lấy câu hỏi theo chương:", err.message);
       res.status(500).json({ message: "Lỗi server" });
     }
   }
@@ -373,35 +521,56 @@ router.put(
   allowRoles("teacher"),
   async (req, res) => {
     const { id } = req.params;
-    const {
-      chapter_id,
-      text,
-      choice_a,
-      choice_b,
-      choice_c,
-      choice_d,
-      correct_choice,
-    } = req.body;
-    try {
-      const result = await pool.query(
-        `UPDATE questions
-       SET chapter_id=$1, text=$2, choice_a=$3, choice_b=$4, choice_c=$5, choice_d=$6, correct_choice=$7
-       WHERE id=$8 RETURNING *`,
-        [
-          chapter_id,
-          text,
-          choice_a,
-          choice_b,
-          choice_c,
-          choice_d,
-          correct_choice,
-          id,
-        ]
+    const { chapter_id, content, answers } = req.body;
+
+    // Validation: Nếu có đáp án, phải có ít nhất 1 đáp án đúng
+    if (answers && answers.length > 0) {
+      const hasCorrectAnswer = answers.some(
+        (answer) => answer.is_correct === true
       );
-      res.json(result.rows[0]);
+      if (!hasCorrectAnswer) {
+        return res.status(400).json({
+          message: "Phải có ít nhất 1 đáp án đúng",
+        });
+      }
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Cập nhật câu hỏi
+      const result = await client.query(
+        `UPDATE questions SET chapter_id=$1, content=$2 WHERE id=$3 RETURNING *`,
+        [chapter_id, content, id]
+      );
+
+      if (result.rows.length === 0) {
+        throw new Error("Không tìm thấy câu hỏi");
+      }
+
+      // Xóa đáp án cũ và thêm đáp án mới
+      if (answers && answers.length > 0) {
+        await client.query(`DELETE FROM answers WHERE question_id = $1`, [id]);
+
+        for (let i = 0; i < answers.length; i++) {
+          // Tạo label động: A, B, C, D, E, F, ...
+          const label = String.fromCharCode(65 + i); // 65 = 'A'.charCodeAt(0)
+          await client.query(
+            `INSERT INTO answers (question_id, label, content, is_correct) VALUES ($1, $2, $3, $4)`,
+            [id, label, answers[i].content, answers[i].is_correct || false]
+          );
+        }
+      }
+
+      await client.query("COMMIT");
+      res.status(200).json(result.rows[0]);
     } catch (err) {
+      await client.query("ROLLBACK");
       console.error("Lỗi cập nhật câu hỏi:", err.message);
       res.status(500).json({ message: "Lỗi server" });
+    } finally {
+      client.release();
     }
   }
 );
@@ -413,8 +582,14 @@ router.delete(
   allowRoles("teacher"),
   async (req, res) => {
     try {
-      await pool.query("DELETE FROM questions WHERE id=$1", [req.params.id]);
-      res.json({ message: "Đã xóa câu hỏi" });
+      const result = await pool.query(
+        "DELETE FROM questions WHERE id=$1 RETURNING *",
+        [req.params.id]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "Không tìm thấy câu hỏi" });
+      }
+      res.status(204).send();
     } catch (err) {
       console.error("Lỗi xóa câu hỏi:", err.message);
       res.status(500).json({ message: "Lỗi server" });
@@ -424,38 +599,109 @@ router.delete(
 
 //  4. EXAMS - Đề thi
 
-// 🎲 Trộn câu hỏi ngẫu nhiên từ ngân hàng câu hỏi
+//  Trộn câu hỏi ngẫu nhiên từ ngân hàng câu hỏi
 router.post(
   "/exams/shuffle",
   requireAuth,
   allowRoles("teacher"),
   async (req, res) => {
-    const { subject_id, question_count = 10, title, duration } = req.body;
+    const {
+      subject_id,
+      question_count = 10,
+      title,
+      duration,
+      chapter_ratio,
+    } = req.body;
 
     if (!subject_id || !title || !duration) {
       return res.status(400).json({ message: "Thiếu thông tin đề thi" });
     }
 
+    // chapter_ratio: [{ chapter_id, percent }], tổng percent ~ 100
+    // Nếu không truyền chapter_ratio thì lấy ngẫu nhiên toàn bộ
     try {
-      // Lấy câu hỏi ngẫu nhiên từ môn học
-      const randomQuestions = await pool.query(
-        `
-      SELECT q.id, q.text, q.choice_a, q.choice_b, q.choice_c, q.choice_d, q.correct_choice
-      FROM questions q 
-      WHERE q.subject_id = $1
-      ORDER BY RANDOM()
-      LIMIT $2
-    `,
-        [subject_id, question_count]
-      );
+      let selectedQuestions = [];
+      let chapterWarnings = [];
+      if (Array.isArray(chapter_ratio) && chapter_ratio.length > 0) {
+        // Validate từng phần tử phải có chapter_id và percent hợp lệ
+        for (const item of chapter_ratio) {
+          if (
+            !item.chapter_id ||
+            typeof item.percent !== "number" ||
+            isNaN(item.percent) ||
+            item.percent <= 0
+          ) {
+            return res.status(400).json({
+              message:
+                "chapter_ratio phải có chapter_id và percent > 0 cho từng chương",
+            });
+          }
+        }
+        // Lấy số câu cho từng chương theo tỉ lệ
+        for (const item of chapter_ratio) {
+          const num = Math.round((item.percent / 100) * question_count);
+          if (num > 0) {
+            // Đếm tổng số câu hỏi có sẵn của chương này
+            const countRes = await pool.query(
+              `SELECT COUNT(*) FROM questions WHERE subject_id = $1 AND chapter_id = $2`,
+              [subject_id, item.chapter_id]
+            );
+            const available = parseInt(countRes.rows[0].count, 10);
+            if (available < num) {
+              chapterWarnings.push({
+                chapter_id: item.chapter_id,
+                required: num,
+                available,
+                message: `Chương ${
+                  item.chapter_id
+                } chỉ có ${available} câu, thiếu ${
+                  num - available
+                } câu so với yêu cầu.`,
+              });
+            }
+            const qs = await pool.query(
+              `SELECT q.id, q.content FROM questions q WHERE q.subject_id = $1 AND q.chapter_id = $2 ORDER BY RANDOM() LIMIT $3`,
+              [subject_id, item.chapter_id, num]
+            );
+            selectedQuestions.push(...qs.rows);
+          }
+        }
+        // Nếu tổng số câu chưa đủ do làm tròn, bổ sung ngẫu nhiên từ các chương còn lại
+        if (selectedQuestions.length < question_count) {
+          const excludeIds = selectedQuestions.map((q) => q.id);
+          const remain = question_count - selectedQuestions.length;
+          const qs = await pool.query(
+            `SELECT q.id, q.content FROM questions q WHERE q.subject_id = $1 AND NOT (q.id = ANY($2)) ORDER BY RANDOM() LIMIT $3`,
+            [subject_id, excludeIds, remain]
+          );
+          selectedQuestions.push(...qs.rows);
+        }
+        // Nếu thừa thì cắt bớt
+        selectedQuestions = selectedQuestions.slice(0, question_count);
+        // Nếu có chương thiếu câu, trả về cảnh báo
+        if (chapterWarnings.length > 0) {
+          return res.status(400).json({
+            message: "Không đủ số câu hỏi theo tỉ lệ chương.",
+            chapter_warnings: chapterWarnings,
+            questions_selected: selectedQuestions.length,
+          });
+        }
+      } else {
+        // Không có tỉ lệ chương, lấy ngẫu nhiên toàn bộ
+        const randomQuestions = await pool.query(
+          `SELECT q.id, q.content FROM questions q WHERE q.subject_id = $1 ORDER BY RANDOM() LIMIT $2`,
+          [subject_id, question_count]
+        );
+        selectedQuestions = randomQuestions.rows;
+      }
 
-      if (randomQuestions.rows.length < question_count) {
+      if (selectedQuestions.length < question_count) {
         return res.status(400).json({
-          message: `Chỉ tìm thấy ${randomQuestions.rows.length} câu hỏi, không đủ ${question_count} câu`,
+          message: `Chỉ tìm thấy ${selectedQuestions.length} câu hỏi, không đủ ${question_count} câu`,
         });
       }
 
-      // Tạo đề thi với câu hỏi đã trộn
+      // Tạo đề thi với câu hỏi đã chọn
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -466,12 +712,18 @@ router.post(
         );
         const examId = examRes.rows[0].id;
 
-        // Thêm câu hỏi vào đề thi với thứ tự ngẫu nhiên
-        for (let i = 0; i < randomQuestions.rows.length; i++) {
+        // Tạo exam set với code = 1
+        const examSetRes = await client.query(
+          "INSERT INTO exam_sets (exam_id, code) VALUES ($1, $2) RETURNING *",
+          [examId, 1]
+        );
+        const examSetId = examSetRes.rows[0].id;
+
+        // Thêm câu hỏi vào exam set với thứ tự ngẫu nhiên
+        for (let i = 0; i < selectedQuestions.length; i++) {
           await client.query(
-            `INSERT INTO exam_questions (exam_id, question_id, order_index)
-           VALUES ($1,$2,$3)`,
-            [examId, randomQuestions.rows[i].id, i + 1]
+            `INSERT INTO exam_set_questions (exam_set_id, question_id, order_index) VALUES ($1,$2,$3)`,
+            [examSetId, selectedQuestions[i].id, i + 1]
           );
         }
 
@@ -480,8 +732,9 @@ router.post(
         res.status(201).json({
           message: "Tạo đề thi ngẫu nhiên thành công",
           exam: examRes.rows[0],
-          questions_added: randomQuestions.rows.length,
-          questions: randomQuestions.rows,
+          exam_set: examSetRes.rows[0],
+          questions_added: selectedQuestions.length,
+          questions: selectedQuestions,
         });
       } catch (err) {
         await client.query("ROLLBACK");
@@ -496,7 +749,7 @@ router.post(
   }
 );
 
-// 📊 Lấy thống kê câu hỏi theo môn học
+//  Lấy thống kê câu hỏi theo môn học
 router.get(
   "/subjects/:subjectId/question-stats",
   requireAuth,
@@ -560,12 +813,18 @@ router.post("/exams", requireAuth, allowRoles("teacher"), async (req, res) => {
     );
     const examId = examRes.rows[0].id;
 
+    // Tạo exam set với code = 1
+    const examSetRes = await client.query(
+      "INSERT INTO exam_sets (exam_id, code) VALUES ($1, $2) RETURNING *",
+      [examId, 1]
+    );
+    const examSetId = examSetRes.rows[0].id;
+
     if (question_ids && question_ids.length > 0) {
       for (let i = 0; i < question_ids.length; i++) {
         await client.query(
-          `INSERT INTO exam_questions (exam_id, question_id, order_index)
-           VALUES ($1,$2,$3)`,
-          [examId, question_ids[i], i + 1]
+          `INSERT INTO exam_set_questions (exam_set_id, question_id, order_index) VALUES ($1,$2,$3)`,
+          [examSetId, question_ids[i], i + 1]
         );
       }
     }
@@ -594,15 +853,38 @@ router.get(
       if (exam.rows.length === 0)
         return res.status(404).json({ message: "Không có đề thi" });
 
-      const qs = await pool.query(
-        `SELECT q.*, eq.order_index
-       FROM exam_questions eq
-       JOIN questions q ON q.id = eq.question_id
-       WHERE eq.exam_id=$1 ORDER BY eq.order_index ASC`,
+      // Lấy exam set đầu tiên của đề thi
+      const examSet = await pool.query(
+        "SELECT * FROM exam_sets WHERE exam_id=$1 ORDER BY created_at ASC LIMIT 1",
         [req.params.id]
       );
 
-      exam.rows[0].questions = qs.rows;
+      if (examSet.rows.length > 0) {
+        const examSetId = examSet.rows[0].id;
+
+        // Lấy câu hỏi từ exam set
+        const qs = await pool.query(
+          `SELECT q.*, esq.order_index
+           FROM exam_set_questions esq
+           JOIN questions q ON q.id = esq.question_id
+           WHERE esq.exam_set_id=$1 ORDER BY esq.order_index ASC`,
+          [examSetId]
+        );
+
+        // Lấy đáp án cho từng câu hỏi
+        for (let question of qs.rows) {
+          const answers = await pool.query(
+            `SELECT * FROM answers WHERE question_id = $1 ORDER BY label`,
+            [question.id]
+          );
+          question.answers = answers.rows;
+        }
+
+        exam.rows[0].questions = qs.rows;
+      } else {
+        exam.rows[0].questions = [];
+      }
+
       res.json(exam.rows[0]);
     } catch (err) {
       console.error("Lỗi lấy đề thi:", err.message);
@@ -627,16 +909,28 @@ router.put(
         examId,
       ]);
 
-      await client.query("DELETE FROM exam_questions WHERE exam_id=$1", [
-        examId,
-      ]);
-      if (question_ids && question_ids.length > 0) {
-        for (let i = 0; i < question_ids.length; i++) {
-          await client.query(
-            `INSERT INTO exam_questions (exam_id, question_id, order_index)
-           VALUES ($1,$2,$3)`,
-            [examId, question_ids[i], i + 1]
-          );
+      // Lấy exam set đầu tiên
+      const examSet = await client.query(
+        "SELECT id FROM exam_sets WHERE exam_id=$1 ORDER BY created_at ASC LIMIT 1",
+        [examId]
+      );
+
+      if (examSet.rows.length > 0) {
+        const examSetId = examSet.rows[0].id;
+
+        // Xóa câu hỏi cũ và thêm câu hỏi mới
+        await client.query(
+          "DELETE FROM exam_set_questions WHERE exam_set_id=$1",
+          [examSetId]
+        );
+
+        if (question_ids && question_ids.length > 0) {
+          for (let i = 0; i < question_ids.length; i++) {
+            await client.query(
+              `INSERT INTO exam_set_questions (exam_set_id, question_id, order_index) VALUES ($1,$2,$3)`,
+              [examSetId, question_ids[i], i + 1]
+            );
+          }
         }
       }
 
@@ -659,9 +953,7 @@ router.delete(
   allowRoles("teacher"),
   async (req, res) => {
     try {
-      await pool.query("DELETE FROM exam_questions WHERE exam_id=$1", [
-        req.params.id,
-      ]);
+      // CASCADE sẽ tự động xóa exam_sets và exam_set_questions
       await pool.query("DELETE FROM exams WHERE id=$1", [req.params.id]);
       res.json({ message: "Đã xóa đề thi" });
     } catch (err) {
@@ -683,11 +975,26 @@ router.post(
     if (!exam_id || !start_at || !end_at)
       return res.status(400).json({ message: "Thiếu dữ liệu ca thi" });
 
+    // Hàm sinh mã ngẫu nhiên 6 ký tự chữ + số
+    function generateAccessCode(length = 6) {
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      let code = "";
+      for (let i = 0; i < length; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return code;
+    }
+
+    const finalAccessCode =
+      access_code && access_code.trim() !== ""
+        ? access_code
+        : generateAccessCode();
+
     try {
       const result = await pool.query(
         `INSERT INTO exam_sessions (exam_id, start_at, end_at, access_code)
        VALUES ($1,$2,$3,$4) RETURNING *`,
-        [exam_id, start_at, end_at, access_code || null]
+        [exam_id, start_at, end_at, finalAccessCode]
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
@@ -758,7 +1065,7 @@ router.get(
 );
 
 //  6. RESULTS - Kết quả ca thi
-// 📊 Lấy danh sách kết quả các ca thi của giáo viên
+//  Lấy danh sách kết quả các ca thi của giáo viên
 router.get(
   "/exam-sessions",
   requireAuth,
@@ -829,6 +1136,27 @@ router.get(
     }
   }
 );
+// Debug endpoint - Kiểm tra tất cả attempts
+router.get(
+  "/debug/attempts",
+  requireAuth,
+  allowRoles("teacher"),
+  async (req, res) => {
+    try {
+      const allAttempts = await pool.query(`
+        SELECT a.*, u.full_name, es.id as session_id 
+        FROM attempts a 
+        JOIN users u ON u.id = a.student_id 
+        JOIN exam_sessions es ON es.id = a.session_id
+        ORDER BY a.id DESC
+      `);
+      res.json(allAttempts.rows);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
 // Xem chi tiết bài làm của 1 sinh viên trong ca thi
 router.get(
   "/exam-sessions/:sessionId/student/:studentId",
@@ -838,6 +1166,10 @@ router.get(
     const { sessionId, studentId } = req.params;
 
     try {
+      console.log(
+        ` Đang tìm attempt với sessionId: ${sessionId}, studentId: ${studentId}`
+      );
+
       // 1. Lấy bài làm
       const attempt = await pool.query(
         `SELECT a.id AS attempt_id, a.score, a.submitted_at, u.full_name AS student_name
@@ -847,34 +1179,73 @@ router.get(
         [sessionId, studentId]
       );
 
-      if (attempt.rows.length === 0)
-        return res.status(404).json({ message: "Không tìm thấy bài làm" });
 
       const attemptId = attempt.rows[0].attempt_id;
 
       // 2. Lấy danh sách câu hỏi + đáp án
-      const answers = await pool.query(
-        `SELECT q.text, q.choice_a, q.choice_b, q.choice_c, q.choice_d, q.correct_choice, aa.chosen_choice
-       FROM attempt_answers aa
-       JOIN questions q ON q.id = aa.question_id
-       WHERE aa.attempt_id = $1`,
+      const questionAnswers = await pool.query(
+        `SELECT 
+          q.id as question_id,
+          q.content as question_content,
+          aa.answer_id as chosen_answer_id
+        FROM attempt_answers aa
+        JOIN questions q ON q.id = aa.question_id
+        WHERE aa.attempt_id = $1
+        ORDER BY q.id`,
         [attemptId]
       );
 
-      // 3. Tính số câu đúng
-      const total = answers.rows.length;
-      const correct = answers.rows.filter(
-        (a) => a.chosen_choice === a.correct_choice
-      ).length;
+      // 3. Lấy tất cả đáp án cho mỗi câu hỏi
+      const detailedAnswers = [];
+      let correctCount = 0;
 
-      res.json({
+      for (let qa of questionAnswers.rows) {
+        // Lấy tất cả đáp án của câu hỏi
+        const allAnswers = await pool.query(
+          `SELECT id, label, content, is_correct FROM answers WHERE question_id = $1 ORDER BY label`,
+          [qa.question_id]
+        );
+
+        // Tìm đáp án đúng
+        const correctAnswer = allAnswers.rows.find((a) => a.is_correct);
+        const chosenAnswer = allAnswers.rows.find(
+          (a) => a.id === qa.chosen_answer_id
+        );
+
+        // Kiểm tra nếu chọn đúng
+        if (
+          qa.chosen_answer_id &&
+          correctAnswer &&
+          qa.chosen_answer_id === correctAnswer.id
+        ) {
+          correctCount++;
+        }
+
+        detailedAnswers.push({
+          question_content: qa.question_content,
+          all_answers: allAnswers.rows,
+          chosen_answer_id: qa.chosen_answer_id,
+          chosen_answer_label: chosenAnswer ? chosenAnswer.label : null,
+          correct_answer_id: correctAnswer ? correctAnswer.id : null,
+          correct_answer_label: correctAnswer ? correctAnswer.label : null,
+          is_correct:
+            qa.chosen_answer_id && correctAnswer
+              ? qa.chosen_answer_id === correctAnswer.id
+              : false,
+        });
+      }
+
+      const result = {
         student: attempt.rows[0].student_name,
         score: attempt.rows[0].score,
         submitted_at: attempt.rows[0].submitted_at,
-        total_questions: total,
-        correct_answers: correct,
-        answers: answers.rows,
-      });
+        total_questions: questionAnswers.rows.length,
+        correct_answers: correctCount,
+        answers: detailedAnswers,
+      };
+
+      
+      res.json(result);
     } catch (err) {
       console.error("Lỗi lấy chi tiết bài làm:", err.message);
       res.status(500).json({ message: "Lỗi server" });
