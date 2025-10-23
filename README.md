@@ -51,6 +51,10 @@ npm install
 ### Bước 5: Chạy ứng dụng
 ```bash
 
+# Chạy server với hot reload 
+npm run dev
+
+# Hoặc chạy server bình thường
 npm start
 ```
 

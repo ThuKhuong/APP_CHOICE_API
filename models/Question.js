@@ -33,11 +33,20 @@ async function createQuestion({ subject_id, chapter_id, content, answers, teache
 
 async function listQuestionsByTeacher(teacher_id) {
   const result = await pool.query(
-    `SELECT q.*, s.name AS subject_name, c.name AS chapter_name, c.id AS chapter_id
+    `SELECT q.*, s.name AS subject_name, c.name AS chapter_name, c.id AS chapter_id,
+            json_agg(
+              json_build_object(
+                'label', a.label,
+                'content', a.content,
+                'is_correct', a.is_correct
+              ) ORDER BY a.label
+            ) AS answers
      FROM questions q
      JOIN subjects s ON q.subject_id = s.id
      LEFT JOIN chapters c ON q.chapter_id = c.id
+     LEFT JOIN answers a ON q.id = a.question_id
      WHERE s.teacher_id = $1
+     GROUP BY q.id, s.name, c.name, c.id
      ORDER BY q.id DESC`,
     [teacher_id]
   );
@@ -46,11 +55,20 @@ async function listQuestionsByTeacher(teacher_id) {
 
 async function getQuestionsBySubject(subject_id, teacher_id) {
   const result = await pool.query(
-    `SELECT q.*, c.name AS chapter_name
+    `SELECT q.*, c.name AS chapter_name,
+            json_agg(
+              json_build_object(
+                'label', a.label,
+                'content', a.content,
+                'is_correct', a.is_correct
+              ) ORDER BY a.label
+            ) AS answers
      FROM questions q
      JOIN subjects s ON q.subject_id = s.id
      LEFT JOIN chapters c ON q.chapter_id = c.id
+     LEFT JOIN answers a ON q.id = a.question_id
      WHERE q.subject_id = $1 AND s.teacher_id = $2
+     GROUP BY q.id, c.name
      ORDER BY q.id ASC`,
     [subject_id, teacher_id]
   );
@@ -59,11 +77,20 @@ async function getQuestionsBySubject(subject_id, teacher_id) {
 
 async function getQuestionsByChapter(chapter_id, teacher_id) {
   const result = await pool.query(
-    `SELECT q.*, c.name AS chapter_name, s.name AS subject_name
+    `SELECT q.*, c.name AS chapter_name, s.name AS subject_name,
+            json_agg(
+              json_build_object(
+                'label', a.label,
+                'content', a.content,
+                'is_correct', a.is_correct
+              ) ORDER BY a.label
+            ) AS answers
      FROM questions q 
      JOIN chapters c ON q.chapter_id = c.id
      JOIN subjects s ON q.subject_id = s.id
+     LEFT JOIN answers a ON q.id = a.question_id
      WHERE q.chapter_id = $1 AND s.teacher_id = $2
+     GROUP BY q.id, c.name, s.name
      ORDER BY q.id ASC`,
     [chapter_id, teacher_id]
   );
@@ -72,11 +99,20 @@ async function getQuestionsByChapter(chapter_id, teacher_id) {
 
 async function getQuestionById(question_id, teacher_id) {
   const result = await pool.query(
-    `SELECT q.*, s.name AS subject_name, c.name AS chapter_name
+    `SELECT q.*, s.name AS subject_name, c.name AS chapter_name,
+            json_agg(
+              json_build_object(
+                'label', a.label,
+                'content', a.content,
+                'is_correct', a.is_correct
+              ) ORDER BY a.label
+            ) AS answers
      FROM questions q
      JOIN subjects s ON q.subject_id = s.id
      LEFT JOIN chapters c ON q.chapter_id = c.id
-     WHERE q.id = $1 AND s.teacher_id = $2`,
+     LEFT JOIN answers a ON q.id = a.question_id
+     WHERE q.id = $1 AND s.teacher_id = $2
+     GROUP BY q.id, s.name, c.name`,
     [question_id, teacher_id]
   );
   return result.rows[0] || null;

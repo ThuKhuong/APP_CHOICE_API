@@ -41,7 +41,7 @@ async function submitAttempt(attempt_id, student_id) {
   return result.rows[0] || null;
 }
 
-async function saveAnswer({ attempt_id, question_id, chosen_choice, student_id }) {
+async function saveAnswer({ attempt_id, question_id, answer_id, student_id }) {
   // Kiểm tra attempt thuộc về student
   const attemptCheck = await pool.query(
     "SELECT 1 FROM attempts WHERE id = $1 AND student_id = $2",
@@ -53,19 +53,19 @@ async function saveAnswer({ attempt_id, question_id, chosen_choice, student_id }
   }
   
   const result = await pool.query(
-    `INSERT INTO student_answers (attempt_id, question_id, chosen_choice)
+    `INSERT INTO attempt_answers (attempt_id, question_id, answer_id)
      VALUES ($1, $2, $3)
      ON CONFLICT (attempt_id, question_id)
-     DO UPDATE SET chosen_choice = $3
+     DO UPDATE SET answer_id = $3, updated_at = NOW()
      RETURNING *`,
-    [attempt_id, question_id, chosen_choice]
+    [attempt_id, question_id, answer_id]
   );
   return result.rows[0];
 }
 
 async function removeAnswer({ attempt_id, question_id, student_id }) {
   const result = await pool.query(
-    `DELETE FROM student_answers 
+    `DELETE FROM attempt_answers 
      WHERE attempt_id = $1 AND question_id = $2
      AND attempt_id IN (SELECT id FROM attempts WHERE student_id = $3)
      RETURNING *`,

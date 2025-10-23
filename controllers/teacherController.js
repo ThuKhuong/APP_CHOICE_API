@@ -4,6 +4,7 @@ const User = require("../models/User");
 const Subject = require("../models/Subject");
 const Question = require("../models/Question");
 const Exam = require("../models/Exam");
+const ExamSet = require("../models/ExamSet");
 const Session = require("../models/Session");
 const pool = require("../db");
 
@@ -259,22 +260,50 @@ async function listExams(req, res) {
 }
 
 async function createExam(req, res) {
-  const { subject_id, title, duration, question_ids } = req.body;
+  const { subject_id, title, duration, question_ids, questions } = req.body;
   
-  if (!subject_id || !title || !duration || !question_ids || question_ids.length === 0) {
+  if (!subject_id || !title || !duration) {
     return res.status(400).json({ message: "Thiếu thông tin đề thi" });
   }
 
   try {
     const exam = await Exam.createExam({ subject_id, title, duration, teacher_id: req.user.id });
     
-    if (question_ids && question_ids.length > 0) {
+    // Nếu có danh sách câu hỏi từ preview
+    if (questions && questions.length > 0) {
+      const questionIds = questions.map(q => q.id);
+      await Exam.assignQuestionsToExam(exam.id, questionIds);
+    }
+    // Nếu có danh sách ID câu hỏi (cách cũ)
+    else if (question_ids && question_ids.length > 0) {
       await Exam.assignQuestionsToExam(exam.id, question_ids);
     }
     
     res.status(201).json(exam);
   } catch (err) {
     console.error("Lỗi tạo đề thi:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+}
+
+async function generateExamPreview(req, res) {
+  const { subject_id, total_questions, time_limit, chapter_distribution } = req.body;
+  
+  if (!subject_id || !total_questions || !chapter_distribution) {
+    return res.status(400).json({ message: "Thiếu thông tin cấu hình đề thi" });
+  }
+
+  try {
+    const previewQuestions = await Exam.generateExamPreview({
+      subject_id,
+      total_questions,
+      chapter_distribution,
+      teacher_id: req.user.id
+    });
+    
+    res.status(200).json(previewQuestions);
+  } catch (err) {
+    console.error("Lỗi sinh preview đề thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
 }
@@ -552,6 +581,152 @@ async function getStudentAttemptInSession(req, res) {
   }
 }
 
+async function getQuestionsByChapterForReplacement(req, res) {
+  const { chapterId } = req.params;
+  
+  try {
+    const questions = await Question.getQuestionsByChapter(chapterId, req.user.id);
+    res.status(200).json(questions);
+  } catch (err) {
+    console.error("Lỗi lấy câu hỏi theo chương:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+}
+
+async function getAvailableProctors(req, res) {
+  try {
+    const result = await pool.query(
+      `SELECT id, full_name, email, status
+       FROM users 
+       WHERE role = 'proctor' AND status = 1
+       ORDER BY full_name`,
+      []
+    );
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error("Lỗi lấy danh sách giám thị:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+}
+
+async function assignProctorsToSession(req, res) {
+  const { sessionId } = req.params;
+  const { proctorIds } = req.body;
+  
+  try {
+    const client = await pool.connect();
+    await client.query("BEGIN");
+    
+    // Xóa phân công cũ
+    await client.query("DELETE FROM proctor_assignments WHERE session_id = $1", [sessionId]);
+    
+    // Thêm phân công mới
+    for (const proctorId of proctorIds) {
+      await client.query(
+        "INSERT INTO proctor_assignments (session_id, proctor_id) VALUES ($1, $2)",
+        [sessionId, proctorId]
+      );
+    }
+    
+    await client.query("COMMIT");
+    res.status(200).json({ message: "Phân công giám thị thành công" });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Lỗi phân công giám thị:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  } finally {
+    client.release();
+  }
+}
+
+async function getExamSets(req, res) {
+  const { examId } = req.params;
+  
+  try {
+    const examSets = await ExamSet.getExamSetsByExam(examId);
+    res.status(200).json(examSets);
+  } catch (err) {
+    console.error("Lỗi lấy danh sách bộ đề:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+}
+
+async function shuffleExam(req, res) {
+  const { examId } = req.params;
+  const { count } = req.body;
+  
+  // Validate input
+  if (!count || count < 1 || count > 20) {
+    return res.status(400).json({ message: "Số lượng bộ đề phải từ 1 đến 20" });
+  }
+  
+  try {
+    // Lấy thông tin đề thi
+    const exam = await Exam.getExamById(examId, req.user.id);
+    if (!exam) {
+      return res.status(404).json({ message: "Không tìm thấy đề thi" });
+    }
+    
+    // Kiểm tra xem có bộ đề gốc chưa
+    const hasOriginalSet = await ExamSet.checkOriginalExamSetExists(examId);
+    if (!hasOriginalSet) {
+      return res.status(400).json({ message: "Đề thi chưa có câu hỏi. Vui lòng tạo đề thi với câu hỏi trước." });
+    }
+    
+    // Lấy câu hỏi từ bộ đề gốc
+    const originalQuestions = await ExamSet.getOriginalExamSetQuestions(examId);
+    if (originalQuestions.length === 0) {
+      return res.status(400).json({ message: "Đề thi chưa có câu hỏi" });
+    }
+    
+    // Tạo các bộ đề mới
+    await ExamSet.createShuffledExamSets(examId, count, originalQuestions);
+    
+    res.status(200).json({ message: `Đã tạo ${count} bộ đề thi thành công` });
+  } catch (err) {
+    console.error("Lỗi trộn đề thi:", err.message);
+    res.status(500).json({ message: "Lỗi server: " + err.message });
+  }
+}
+
+async function getExamSetQuestions(req, res) {
+  const { examSetId } = req.params;
+  
+  try {
+    const questions = await ExamSet.getExamSetQuestions(examSetId);
+    
+    // Group answers by question
+    const questionsWithAnswers = questions.reduce((acc, row) => {
+      const questionId = row.id;
+      if (!acc[questionId]) {
+        acc[questionId] = {
+          id: row.id,
+          content: row.content,
+          chapter_name: row.chapter_name,
+          chapter_number: row.chapter_number,
+          answers: []
+        };
+      }
+      
+      if (row.label) {
+        acc[questionId].answers.push({
+          label: row.label,
+          content: row.answer_content,
+          is_correct: row.is_correct
+        });
+      }
+      
+      return acc;
+    }, {});
+    
+    const result = Object.values(questionsWithAnswers);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("Lỗi lấy câu hỏi bộ đề:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+}
+
 module.exports = {
   registerTeacher,
   loginTeacher,
@@ -572,6 +747,7 @@ module.exports = {
   getQuestionStats,
   listExams,
   createExam,
+  generateExamPreview,
   getExamById,
   updateExam,
   deleteExam,
@@ -586,6 +762,11 @@ module.exports = {
   listExamSessions,
   listAttemptsDebug,
   getStudentAttemptInSession,
+  getQuestionsByChapterForReplacement,
+  getAvailableProctors,
+  assignProctorsToSession,
+  getExamSets,
+  getExamSetQuestions,
 };
 
 
