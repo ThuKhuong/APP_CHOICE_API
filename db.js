@@ -1,12 +1,13 @@
 // db.js
 const { Pool } = require("pg");
+require("dotenv").config();
 
 const pool = new Pool({
-  user: "postgres", // user DB của bạn
-  host: "localhost", // thường là localhost
-  database: "multiple_choice", // tên DB bạn tạo
-  password: "", // mật khẩu
-  port: 5432, // cổng mặc định PostgreSQL
+  user: process.env.DB_USER || "postgres",
+  host: process.env.DB_HOST || "localhost",
+  database: process.env.DB_NAME || "multiple_choice",
+  password: process.env.DB_PASSWORD || "",
+  port: process.env.DB_PORT || 5432,
 });
 
 // test kết nối
