@@ -2,24 +2,19 @@ const jwt = require("jsonwebtoken");
 
 function requireAuth(req, res, next) {
   const header = req.headers["authorization"];
-  console.log("Backend - Authorization header:", header);
   
   if (!header) {
-    console.log("Backend - No authorization header found");
     return res.status(401).json({ message: "Không có token xác thực" });
   }
 
   const token = header.split(" ")[1];
-  console.log("Backend - Extracted token:", token ? `${token.substring(0, 20)}...` : "null");
   
   if (!token) {
-    console.log("Backend - No token found in header");
     return res.status(401).json({ message: "Token không hợp lệ" });
   }
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET || "secret123"); 
-    console.log("Backend - JWT payload:", payload);
     req.user = payload;
     next();
   } catch (err) {

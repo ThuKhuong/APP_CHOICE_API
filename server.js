@@ -39,9 +39,35 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Import job scheduler
+const scheduler = require('./scheduler/sessionStatusScheduler.js');
+
 const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+const server = app.listen(PORT, () => {
+  console.log(`Server: http://localhost:${PORT}`);
+  console.log(`Scheduler: Running every 1s`);
+  
+  // Start job scheduler khi server start
+  scheduler.start();
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\nShutting down...');
+  scheduler.stop();
+  server.close(() => {
+    console.log('Closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGTERM', () => {
+  console.log('\nShutting down...');
+  scheduler.stop();
+  server.close(() => {
+    console.log('Closed');
+    process.exit(0);
+  });
 });
 
 module.exports = app;

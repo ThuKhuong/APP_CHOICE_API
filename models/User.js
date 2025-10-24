@@ -63,26 +63,12 @@ async function getAvailableProctors() {
        u.full_name,
        u.email,
        u.role,
-       COUNT(es.id) as assigned_sessions_count,
-       CASE 
-         WHEN COUNT(es.id) = 0 THEN 'available'
-         WHEN COUNT(es.id) <= 2 THEN 'busy'
-         ELSE 'overloaded'
-       END as availability_status
+       0 as assigned_sessions_count,
+       'available' as availability_status
      FROM users u
-     LEFT JOIN exam_sessions es ON u.id = es.proctor_id 
-       AND es.start_at <= NOW() + INTERVAL '7 days'
-       AND es.end_at >= NOW() - INTERVAL '1 day'
-     WHERE u.role IN ('proctor', 'teacher') 
+     WHERE u.role LIKE '%proctor%'
        AND u.status = 1
-     GROUP BY u.id, u.full_name, u.email, u.role
-     ORDER BY 
-       CASE 
-         WHEN COUNT(es.id) = 0 THEN 1
-         WHEN COUNT(es.id) <= 2 THEN 2
-         ELSE 3
-       END,
-       u.full_name`
+     ORDER BY u.full_name`
   );
   return result.rows;
 }

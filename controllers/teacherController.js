@@ -370,17 +370,30 @@ async function listSessions(req, res) {
 }
 
 async function createSession(req, res) {
-  const { exam_id, start_at, end_at, access_code, proctor_id } = req.body;
+  const { exam_id, start_at, end_at, access_code } = req.body;
   
-  if (!exam_id || !start_at || !end_at || !access_code) {
-    return res.status(400).json({ message: "Thiếu thông tin ca thi" });
+  if (!exam_id || !start_at || !end_at) {
+    return res.status(400).json({ message: "Thiếu thông tin bắt buộc: exam_id, start_at, end_at" });
   }
 
+  // Tạo mã truy cập ngẫu nhiên nếu không có
+  const finalAccessCode = access_code && access_code.trim() 
+    ? access_code.trim() 
+    : Math.random().toString(36).substring(2, 8).toUpperCase();
+
   try {
-    const session = await Session.createSession({ exam_id, start_at, end_at, access_code, proctor_id, teacher_id: req.user.id });
+    const session = await Session.createSession({ 
+      exam_id, 
+      start_at, 
+      end_at, 
+      access_code: finalAccessCode, 
+      teacher_id: req.user.id 
+    });
+    
     if (!session) {
-      return res.status(404).json({ message: "Không tìm thấy đề thi" });
+      return res.status(404).json({ message: "Không tìm thấy đề thi hoặc không có quyền truy cập" });
     }
+    
     res.status(201).json(session);
   } catch (err) {
     console.error("Lỗi tạo ca thi:", err.message);
@@ -390,13 +403,26 @@ async function createSession(req, res) {
 
 async function updateSession(req, res) {
   const { id } = req.params;
-  const { start_at, end_at, access_code } = req.body;
+  const { exam_id, start_at, end_at, access_code } = req.body;
   
+  if (!exam_id || !start_at || !end_at) {
+    return res.status(400).json({ message: "Thiếu thông tin bắt buộc: exam_id, start_at, end_at" });
+  }
+
   try {
-    const updated = await Session.updateSession({ session_id: id, teacher_id: req.user.id, start_at, end_at, access_code });
+    const updated = await Session.updateSession({ 
+      session_id: id, 
+      teacher_id: req.user.id, 
+      exam_id,
+      start_at, 
+      end_at, 
+      access_code 
+    });
+    
     if (!updated) {
-      return res.status(404).json({ message: "Không tìm thấy ca thi" });
+      return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
     }
+    
     res.status(200).json(updated);
   } catch (err) {
     console.error("Lỗi cập nhật ca thi:", err.message);
@@ -406,14 +432,102 @@ async function updateSession(req, res) {
 
 async function deleteSession(req, res) {
   const { id } = req.params;
+  
   try {
-    const deleted = await Session.deleteSession(id, req.user.id);
-    if (!deleted) {
-      return res.status(404).json({ message: "Không tìm thấy ca thi" });
+    // Kiểm tra xem ca thi có đang diễn ra không
+    const session = await Session.getSessionById(id, req.user.id);
+    if (!session) {
+      return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
     }
+
+    const now = new Date();
+    const startTime = new Date(session.start_at);
+    const endTime = new Date(session.end_at);
+    
+    if (now >= startTime && now <= endTime) {
+      return res.status(409).json({ message: "Không thể xóa ca thi đang diễn ra" });
+    }
+
+    // Kiểm tra xem có thí sinh nào đã tham gia không
+    const attemptsCheck = await pool.query(
+      "SELECT COUNT(*) as count FROM attempts WHERE session_id = $1",
+      [id]
+    );
+    
+    if (attemptsCheck.rows[0].count > 0) {
+      return res.status(409).json({ message: "Không thể xóa ca thi đã có thí sinh tham gia" });
+    }
+
+    const deleted = await Session.deleteSession(id, req.user.id);
     res.status(204).send();
   } catch (err) {
     console.error("Lỗi xóa ca thi:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+}
+
+async function getSessionById(req, res) {
+  const { id } = req.params;
+  
+  try {
+    const session = await Session.getSessionById(id, req.user.id);
+    
+    if (!session) {
+      return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
+    }
+    
+    res.status(200).json(session);
+  } catch (err) {
+    console.error("Lỗi lấy chi tiết ca thi:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+}
+
+async function getSessionProctor(req, res) {
+  const { id } = req.params;
+  
+  try {
+    // Kiểm tra quyền truy cập session
+    const session = await Session.getSessionById(id, req.user.id);
+    if (!session) {
+      return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
+    }
+
+    const proctor = await Session.getSessionProctor(id);
+    res.status(200).json(proctor);
+  } catch (err) {
+    console.error("Lỗi lấy thông tin giám thị:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+}
+
+async function cancelSession(req, res) {
+  const { id } = req.params;
+  
+  try {
+    const cancelled = await Session.cancelSession(id, req.user.id);
+    
+    if (!cancelled) {
+      return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
+    }
+    
+    res.status(200).json({ message: "Hủy ca thi thành công", session: cancelled });
+  } catch (err) {
+    console.error("Lỗi hủy ca thi:", err.message);
+    if (err.message.includes("đang diễn ra")) {
+      res.status(409).json({ message: err.message });
+    } else {
+      res.status(500).json({ message: "Lỗi server" });
+    }
+  }
+}
+
+async function updateSessionStatuses(req, res) {
+  try {
+    const result = await Session.updateSessionStatuses();
+    res.status(200).json({ message: "Cập nhật status thành công", ...result });
+  } catch (err) {
+    console.error("Lỗi cập nhật status:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
 }
@@ -793,6 +907,10 @@ module.exports = {
   createSession,
   updateSession,
   deleteSession,
+  getSessionById,
+  getSessionProctor,
+  cancelSession,
+  updateSessionStatuses,
   getSessionStats,
   saveExamSetChapterDistribution,
   shuffleExam,

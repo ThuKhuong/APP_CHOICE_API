@@ -50,9 +50,22 @@ router.get("/exam-sets/:examSetId/questions", allowRoles("teacher"), teacherCont
 
 // SESSIONS - Ca thi
 router.get("/sessions", allowRoles("teacher"), teacherController.listSessions);
+router.get("/sessions/:id", allowRoles("teacher"), teacherController.getSessionById);
+router.get("/sessions/:id/proctor", allowRoles("teacher"), teacherController.getSessionProctor);
 router.post("/sessions", allowRoles("teacher"), teacherController.createSession);
 router.put("/sessions/:id", allowRoles("teacher"), teacherController.updateSession);
 router.delete("/sessions/:id", allowRoles("teacher"), teacherController.deleteSession);
+router.put("/sessions/:id/cancel", allowRoles("teacher"), teacherController.cancelSession);
+router.post("/sessions/update-statuses", allowRoles("teacher"), teacherController.updateSessionStatuses);
+
+// EXAM-SESSIONS - Alternative endpoints
+router.get("/exam-sessions", allowRoles("teacher"), teacherController.listSessions);
+router.get("/exam-sessions/:id", allowRoles("teacher"), teacherController.getSessionById);
+router.get("/exam-sessions/:id/proctor", allowRoles("teacher"), teacherController.getSessionProctor);
+router.post("/exam-sessions", allowRoles("teacher"), teacherController.createSession);
+router.put("/exam-sessions/:id", allowRoles("teacher"), teacherController.updateSession);
+router.delete("/exam-sessions/:id", allowRoles("teacher"), teacherController.deleteSession);
+router.put("/exam-sessions/:id/cancel", allowRoles("teacher"), teacherController.cancelSession);
 
 // PROCTORS - Giám thị
 router.get("/proctors", allowRoles("teacher"), teacherController.getAvailableProctors);
