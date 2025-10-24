@@ -1,5 +1,5 @@
 const express = require("express");
-const { requireAuth, allowRoles } = require("../middleware/auth");
+const { requireAuth, allowRoles, checkRole } = require("../middleware/auth");
 const proctorController = require("../controllers/proctorController");
 
 const router = express.Router();
@@ -7,22 +7,25 @@ const router = express.Router();
 // Auth guard for all proctor routes
 router.use(requireAuth);
 
-// Lấy dashboard tổng quan
-router.get("/dashboard", allowRoles("teacher", "proctor"), proctorController.getDashboard);
+// Dashboard - chỉ giám thị hoặc giáo viên có thể xem
+router.get("/dashboard", allowRoles("proctor", "teacher"), proctorController.getDashboard);
 
-// Lấy ca thi được phân công
-router.get("/assigned-sessions", allowRoles("proctor"), proctorController.getAssignedSessions);
+// Ca thi được phân công - chỉ giám thị
+router.get("/assigned-sessions", checkRole("proctor"), proctorController.getAssignedSessions);
 
-// Lấy chi tiết ca thi
-router.get("/sessions/:sessionId/details", allowRoles("proctor"), proctorController.getSessionDetails);
+// Chi tiết ca thi - chỉ giám thị
+router.get("/sessions/:sessionId/details", checkRole("proctor"), proctorController.getSessionDetails);
 
-// Ghi nhận vi phạm
-router.post("/violations", allowRoles("proctor"), proctorController.recordViolation);
+// Ghi nhận vi phạm - chỉ giám thị
+router.post("/violations", checkRole("proctor"), proctorController.recordViolation);
 
-// Báo cáo sự cố
-router.post("/incidents", allowRoles("proctor"), proctorController.reportIncident);
+// Báo cáo sự cố - chỉ giám thị
+router.post("/incidents", checkRole("proctor"), proctorController.reportIncident);
 
-// Lấy thông tin giám sát sinh viên chi tiết
-router.get("/students/:studentId/monitor", allowRoles("proctor"), proctorController.getStudentMonitor);
+// Giám sát sinh viên - chỉ giám thị
+router.get("/students/:studentId/monitor", checkRole("proctor"), proctorController.getStudentMonitor);
+
+// Lấy danh sách giám thị có sẵn - teacher và admin
+router.get("/available", allowRoles("teacher", "admin"), proctorController.getAvailableProctors);
 
 module.exports = router;

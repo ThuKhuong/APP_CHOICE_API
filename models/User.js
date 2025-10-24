@@ -56,6 +56,69 @@ async function updateStatus(id, status) {
   return result.rows[0] || null;
 }
 
+async function getAvailableProctors() {
+  const result = await pool.query(
+    `SELECT 
+       u.id,
+       u.full_name,
+       u.email,
+       u.role,
+       COUNT(es.id) as assigned_sessions_count,
+       CASE 
+         WHEN COUNT(es.id) = 0 THEN 'available'
+         WHEN COUNT(es.id) <= 2 THEN 'busy'
+         ELSE 'overloaded'
+       END as availability_status
+     FROM users u
+     LEFT JOIN exam_sessions es ON u.id = es.proctor_id 
+       AND es.start_at <= NOW() + INTERVAL '7 days'
+       AND es.end_at >= NOW() - INTERVAL '1 day'
+     WHERE u.role IN ('proctor', 'teacher') 
+       AND u.status = 1
+     GROUP BY u.id, u.full_name, u.email, u.role
+     ORDER BY 
+       CASE 
+         WHEN COUNT(es.id) = 0 THEN 1
+         WHEN COUNT(es.id) <= 2 THEN 2
+         ELSE 3
+       END,
+       u.full_name`
+  );
+  return result.rows;
+}
+
+async function getProctorById(id) {
+  const result = await pool.query(
+    `SELECT id, full_name, email, role, status
+     FROM users 
+     WHERE id = $1 AND role IN ('teacher', 'proctor') AND status = 1`,
+    [id]
+  );
+  return result.rows[0] || null;
+}
+
+async function checkProctorConflict(proctorId, sessionId) {
+  const result = await pool.query(
+    `SELECT es.id, es.start_at, es.end_at, e.title
+     FROM exam_sessions es
+     JOIN exams e ON es.exam_id = e.id
+     WHERE es.proctor_id = $1 
+     AND es.id != $2
+     AND (
+       (es.start_at <= (SELECT start_at FROM exam_sessions WHERE id = $2) 
+        AND es.end_at > (SELECT start_at FROM exam_sessions WHERE id = $2))
+       OR
+       (es.start_at < (SELECT end_at FROM exam_sessions WHERE id = $2) 
+        AND es.end_at >= (SELECT end_at FROM exam_sessions WHERE id = $2))
+       OR
+       (es.start_at >= (SELECT start_at FROM exam_sessions WHERE id = $2) 
+        AND es.end_at <= (SELECT end_at FROM exam_sessions WHERE id = $2))
+     )`,
+    [proctorId, sessionId]
+  );
+  return result.rows;
+}
+
 module.exports = {
   findByEmail,
   createStudent,
@@ -64,6 +127,9 @@ module.exports = {
   approveTeacher,
   rejectPendingTeacher,
   updateStatus,
+  getAvailableProctors,
+  getProctorById,
+  checkProctorConflict,
 };
 
 

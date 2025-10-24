@@ -6,6 +6,7 @@ const Question = require("../models/Question");
 const Exam = require("../models/Exam");
 const ExamSet = require("../models/ExamSet");
 const Session = require("../models/Session");
+const ProctorAssignment = require("../models/ProctorAssignment");
 const pool = require("../db");
 
 const SECRET = process.env.JWT_SECRET || "secret123";
@@ -595,14 +596,8 @@ async function getQuestionsByChapterForReplacement(req, res) {
 
 async function getAvailableProctors(req, res) {
   try {
-    const result = await pool.query(
-      `SELECT id, full_name, email, status
-       FROM users 
-       WHERE role = 'proctor' AND status = 1
-       ORDER BY full_name`,
-      []
-    );
-    res.status(200).json(result.rows);
+    const proctors = await User.getAvailableProctors();
+    res.status(200).json(proctors);
   } catch (err) {
     console.error("Lỗi lấy danh sách giám thị:", err.message);
     res.status(500).json({ message: "Lỗi server" });
@@ -636,6 +631,49 @@ async function assignProctorsToSession(req, res) {
     res.status(500).json({ message: "Lỗi server" });
   } finally {
     client.release();
+  }
+}
+
+async function assignSingleProctor(req, res) {
+  const { session_id, proctor_id } = req.body;
+  
+  if (!session_id || !proctor_id) {
+    return res.status(400).json({ message: "Thiếu thông tin session_id hoặc proctor_id" });
+  }
+
+  try {
+    // Kiểm tra session có thuộc về teacher này không
+    const sessionCheck = await ProctorAssignment.checkSessionOwnership(session_id, req.user.id);
+    if (!sessionCheck) {
+      return res.status(403).json({ message: "Bạn không có quyền phân công giám thị cho ca thi này" });
+    }
+
+    // Kiểm tra proctor có tồn tại và có quyền làm giám thị không
+    const proctor = await User.getProctorById(proctor_id);
+    if (!proctor) {
+      return res.status(404).json({ message: "Không tìm thấy giám thị hoặc giám thị không có quyền" });
+    }
+
+    // Kiểm tra proctor có bận ca thi nào khác trong cùng thời gian không
+    const conflicts = await User.checkProctorConflict(proctor_id, session_id);
+    if (conflicts.length > 0) {
+      return res.status(400).json({ 
+        message: "Giám thị đã được phân công ca thi khác trong cùng thời gian",
+        conflict: conflicts[0]
+      });
+    }
+
+    // Cập nhật proctor cho session
+    const session = await ProctorAssignment.assignProctorToSession(session_id, proctor_id);
+
+    res.json({ 
+      message: "Phân công giám thị thành công",
+      session,
+      proctor
+    });
+  } catch (err) {
+    console.error("Lỗi phân công giám thị:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
   }
 }
 
@@ -765,6 +803,7 @@ module.exports = {
   getQuestionsByChapterForReplacement,
   getAvailableProctors,
   assignProctorsToSession,
+  assignSingleProctor,
   getExamSets,
   getExamSetQuestions,
 };

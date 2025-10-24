@@ -57,6 +57,7 @@ router.delete("/sessions/:id", allowRoles("teacher"), teacherController.deleteSe
 // PROCTORS - Giám thị
 router.get("/proctors", allowRoles("teacher"), teacherController.getAvailableProctors);
 router.post("/sessions/:sessionId/proctors", allowRoles("teacher"), teacherController.assignProctorsToSession);
+router.post("/proctor-assignments", allowRoles("teacher"), teacherController.assignSingleProctor);
 router.get("/exam-sessions/:id/results", allowRoles("teacher"), teacherController.getSessionStats);
 
 // Các routes đặc biệt cần logic phức tạp (tạm thời giữ nguyên)
