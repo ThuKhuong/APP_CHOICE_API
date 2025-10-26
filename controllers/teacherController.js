@@ -24,7 +24,13 @@ exports.registerTeacher = async (req, res) => {
     if (existing) return res.status(400).json({ message: "Email đã được sử dụng" });
     const password_hash = await bcrypt.hash(password, 10);
     const user = await User.createTeacherPending({ full_name, email, password_hash });
-    const token = jwt.sign({ id: user.id, role: user.role, status: user.status }, SECRET, { expiresIn: "2h" });
+    
+    // Parse role từ JSON string
+    const roles = typeof user.role === 'string' && user.role.startsWith('[') 
+      ? JSON.parse(user.role) 
+      : [user.role];
+    
+    const token = jwt.sign({ id: user.id, role: roles, status: user.status }, SECRET, { expiresIn: "2h" });
     res.status(201).json({ message: "Đăng ký thành công", token, user });
   } catch (err) {
     console.error("Lỗi đăng ký giáo viên:", err.message);
@@ -46,11 +52,16 @@ exports.loginTeacher = async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({ message: "Email hoặc mật khẩu không đúng" });
     }
-    const token = jwt.sign({ id: user.id, role: user.role, status: user.status }, SECRET, { expiresIn: "2h" });
+    // Parse role từ JSON string
+    const roles = typeof user.role === 'string' && user.role.startsWith('[') 
+      ? JSON.parse(user.role) 
+      : [user.role];
+    
+    const token = jwt.sign({ id: user.id, role: roles, status: user.status }, SECRET, { expiresIn: "2h" });
     res.json({
       message: "Đăng nhập thành công",
       token,
-      user: { id: user.id, full_name: user.full_name, email: user.email, role: user.role, status: user.status },
+      user: { id: user.id, full_name: user.full_name, email: user.email, role: roles, status: user.status },
     });
   } catch (err) {
     console.error("Lỗi đăng nhập giáo viên:", err.message);

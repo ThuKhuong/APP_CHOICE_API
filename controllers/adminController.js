@@ -5,7 +5,7 @@ const User = require("../models/User");
 exports.listUsers = async function(req, res) {
   try {
     const users = await User.getAllUsers();
-    res.json(users);
+    res.json({ users });
   } catch (err) {
     console.error("Lỗi lấy danh sách người dùng:", err.message);
     res.status(500).json({ message: "Lỗi server" });
@@ -15,7 +15,7 @@ exports.listUsers = async function(req, res) {
 exports.listPendingTeachers = async function(req, res) {
   try {
     const teachers = await User.listPendingTeachers();
-    res.json(teachers);
+    res.json({ pendingTeachers: teachers });
   } catch (err) {
     console.error("Lỗi lấy danh sách giáo viên chờ duyệt:", err.message);
     res.status(500).json({ message: "Lỗi server" });
@@ -41,10 +41,37 @@ exports.approveTeacher = async function(req, res) {
 exports.updateUserRole = async function(req, res) {
   try {
     const { id } = req.params;
-    const { role } = req.body;
+    let { role } = req.body;
     
-    if (!role || !['admin', 'teacher', 'student', 'proctor'].includes(role)) {
-      return res.status(400).json({ message: "Role không hợp lệ" });
+    // Xử lý role nếu là array hoặc JSON string
+    if (Array.isArray(role)) {
+      // Giữ nguyên array format
+      role = role;
+    } else if (typeof role === 'string' && role.startsWith('[')) {
+      try {
+        const parsedRole = JSON.parse(role);
+        role = Array.isArray(parsedRole) ? parsedRole : [parsedRole];
+      } catch (e) {
+        // Nếu không parse được, chuyển thành array
+        role = [role];
+      }
+    } else {
+      // Nếu là string đơn, chuyển thành array
+      role = [role];
+    }
+    
+    if (!role) {
+      return res.status(400).json({ message: "Role không được để trống" });
+    }
+    
+    // Kiểm tra role hợp lệ (array format)
+    const validRoles = ['admin', 'teacher', 'student', 'proctor'];
+    const hasInvalidRole = role.some(r => !validRoles.includes(r));
+    
+    if (hasInvalidRole) {
+      return res.status(400).json({ 
+        message: `Role không hợp lệ. Chỉ chấp nhận: ${validRoles.join(', ')}` 
+      });
     }
     
     const result = await User.updateUserRole(id, role);
@@ -76,6 +103,45 @@ exports.updateUserStatus = async function(req, res) {
     res.json({ message: "Cập nhật trạng thái thành công" });
   } catch (err) {
     console.error("Lỗi cập nhật trạng thái:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.createUser = async function(req, res) {
+  try {
+    const { full_name, email, password, role, status } = req.body;
+    
+    if (!full_name || !email || !password) {
+      return res.status(400).json({ message: "Thiếu thông tin bắt buộc" });
+    }
+    
+    // Kiểm tra email đã tồn tại
+    const existingUser = await User.findByEmail(email);
+    if (existingUser) {
+      return res.status(400).json({ message: "Email đã được sử dụng" });
+    }
+    
+    // Tạo user mới
+    const user = await User.createUser({ 
+      full_name, 
+      email, 
+      password, 
+      role: role || ['student'], 
+      status: status !== undefined ? status : 1 
+    });
+    
+    res.status(201).json({ 
+      message: "Tạo user thành công", 
+      user: {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        role: user.role,
+        status: user.status
+      }
+    });
+  } catch (err) {
+    console.error("Lỗi tạo user:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
 };

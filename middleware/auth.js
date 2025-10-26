@@ -15,6 +15,16 @@ function requireAuth(req, res, next) {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET || "secret123"); 
+    
+    // Parse role từ JSON string nếu cần
+    if (typeof payload.role === 'string' && payload.role.startsWith('[')) {
+      try {
+        payload.role = JSON.parse(payload.role);
+      } catch (e) {
+        // Nếu không parse được, giữ nguyên
+      }
+    }
+    
     req.user = payload;
     next();
   } catch (err) {

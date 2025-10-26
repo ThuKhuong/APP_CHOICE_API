@@ -15,6 +15,7 @@ router.get("/pending-teachers", allowRoles("admin"), adminController.listPending
 router.put("/approve-teacher/:id", allowRoles("admin"), adminController.approveTeacher);
 router.put("/users/:id/role", allowRoles("admin"), adminController.updateUserRole);
 router.put("/users/:id/status", allowRoles("admin"), adminController.updateUserStatus);
+router.post("/users", allowRoles("admin"), adminController.createUser);
 
 // DASHBOARD
 router.get("/dashboard", allowRoles("admin"), adminController.dashboard);

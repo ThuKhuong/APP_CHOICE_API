@@ -84,10 +84,16 @@ exports.login = async function(req, res) {
   
   try {
     const user = await Auth.validateLogin(email, password);
-    const token = await Auth.generateToken(user);
     
     // Hỗ trợ multi-role: xử lý role có thể là string hoặc JSON array
     const roles = parseUserRoles(user.role);
+    
+    // Tạo token với role đã parse
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: roles, status: user.status },
+      process.env.JWT_SECRET || "your-secret-key",
+      { expiresIn: "24h" }
+    );
     
     res.json({ 
       message: "Đăng nhập thành công",
@@ -95,10 +101,10 @@ exports.login = async function(req, res) {
       user: { 
         id: user.id, 
         full_name: user.full_name, 
-        email: user.email,
+        email: user.email, 
         role: roles,
         status: user.status 
-      } 
+      }
     });
   } catch (err) {
     console.error("Lỗi login:", err.message);

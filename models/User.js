@@ -121,7 +121,8 @@ exports.getDashboardStats = async function() {
 };
 
 exports.updateUserRole = async function(id, role) {
-  const roleValue = Array.isArray(role) ? role.join(',') : role;
+  // Lưu role dưới dạng JSON array trong database
+  const roleValue = Array.isArray(role) ? JSON.stringify(role) : JSON.stringify([role]);
   const result = await pool.query(
     "UPDATE users SET role = $1 WHERE id = $2 RETURNING id, full_name, email, role",
     [roleValue, id]
@@ -135,4 +136,20 @@ exports.updateUserStatus = async function(id, status) {
     [status, id]
   );
   return result.rows[0] || null;
+};
+
+exports.createUser = async function({ full_name, email, password, role, status }) {
+  const bcrypt = require('bcrypt');
+  
+  // Hash password
+  const password_hash = await bcrypt.hash(password, 10);
+  
+  // Xử lý role
+  const roleValue = Array.isArray(role) ? JSON.stringify(role) : JSON.stringify([role]);
+  
+  const result = await pool.query(
+    "INSERT INTO users (full_name, email, password_hash, role, status) VALUES ($1, $2, $3, $4, $5) RETURNING id, full_name, email, role, status",
+    [full_name, email, password_hash, roleValue, status]
+  );
+  return result.rows[0];
 };
