@@ -1,3 +1,4 @@
+// controllers/teacherController.js 
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const User = require("../models/User");
@@ -11,7 +12,9 @@ const pool = require("../db");
 
 const SECRET = process.env.JWT_SECRET || "secret123";
 
-async function registerTeacher(req, res) {
+// ========== Auth ==========
+
+exports.registerTeacher = async (req, res) => {
   const { full_name, email, password } = req.body;
   if (!full_name || !email || !password) {
     return res.status(400).json({ message: "Thiếu thông tin" });
@@ -27,110 +30,9 @@ async function registerTeacher(req, res) {
     console.error("Lỗi đăng ký giáo viên:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function listSubjects(req, res) {
-  try {
-    const subjects = await Subject.listSubjectsByTeacher(req.user.id);
-    res.status(200).json(subjects);
-  } catch (err) {
-    console.error("Lỗi lấy môn học:", err.message);
-    res.status(500).json({ message: "Lỗi server" });
-  }
-}
-
-async function createSubject(req, res) {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ message: "Thiếu tên môn học" });
-  try {
-    const exists = await Subject.isSubjectNameExistForTeacher({ name, teacher_id: req.user.id });
-    if (exists) return res.status(409).json({ message: "Tên môn học đã tồn tại" });
-    const subject = await Subject.createSubject({ name, teacher_id: req.user.id });
-    res.status(201).json({ subject });
-  } catch (err) {
-    console.error("Lỗi thêm môn học:", err.message);
-    res.status(500).json({ message: "Lỗi server" });
-  }
-}
-
-async function updateSubjectById(req, res) {
-  const { id } = req.params;
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ message: "Thiếu tên môn học" });
-  try {
-    const exists = await Subject.isSubjectNameExistForTeacher({ name, teacher_id: req.user.id, exclude_id: id });
-    if (exists) return res.status(409).json({ message: "Tên môn học đã tồn tại" });
-    const updated = await Subject.updateSubject({ id, teacher_id: req.user.id, name });
-    if (!updated) return res.status(404).json({ message: "Không tìm thấy môn học" });
-    res.status(200).json(updated);
-  } catch (err) {
-    console.error("Lỗi cập nhật môn học:", err.message);
-    res.status(500).json({ message: "Lỗi server" });
-  }
-}
-
-async function deleteSubjectById(req, res) {
-  const { id } = req.params;
-  try {
-    const deleted = await Subject.deleteSubject({ id, teacher_id: req.user.id });
-    if (!deleted) return res.status(404).json({ message: "Không tìm thấy môn học" });
-    res.status(204).send();
-  } catch (err) {
-    console.error("Lỗi xóa môn học:", err.message);
-    res.status(500).json({ message: "Lỗi server" });
-  }
-}
-
-async function listChaptersBySubject(req, res) {
-  const { subjectId } = req.params;
-  try {
-    const chapters = await Subject.listChapters(subjectId, req.user.id);
-    res.status(200).json(chapters);
-  } catch (err) {
-    console.error("Lỗi lấy chương:", err.message);
-    res.status(500).json({ message: "Lỗi server" });
-  }
-}
-
-async function createChapterForSubject(req, res) {
-  const { subjectId } = req.params;
-  const { name, chapter_number } = req.body;
-  try {
-    const created = await Subject.createChapter(subjectId, req.user.id, { name, chapter_number });
-    if (!created) return res.status(404).json({ message: "Không tìm thấy môn học" });
-    res.status(201).json(created);
-  } catch (err) {
-    console.error("Lỗi tạo chương:", err.message);
-    res.status(500).json({ message: "Lỗi server" });
-  }
-}
-
-async function updateChapterById(req, res) {
-  const { id } = req.params;
-  const { name, chapter_number } = req.body;
-  try {
-    const updated = await Subject.updateChapter(id, req.user.id, { name, chapter_number });
-    if (!updated) return res.status(404).json({ message: "Không tìm thấy chương" });
-    res.status(200).json(updated);
-  } catch (err) {
-    console.error("Lỗi cập nhật chương:", err.message);
-    res.status(500).json({ message: "Lỗi server" });
-  }
-}
-
-async function deleteChapterById(req, res) {
-  const { id } = req.params;
-  try {
-    const deleted = await Subject.deleteChapter(id, req.user.id);
-    if (!deleted) return res.status(404).json({ message: "Không tìm thấy chương" });
-    res.status(204).send();
-  } catch (err) {
-    console.error("Lỗi xóa chương:", err.message);
-    res.status(500).json({ message: "Lỗi server" });
-  }
-}
-
-async function loginTeacher(req, res) {
+exports.loginTeacher = async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ message: "Thiếu thông tin đăng nhập" });
@@ -140,7 +42,6 @@ async function loginTeacher(req, res) {
     if (!user || user.role !== 'teacher') {
       return res.status(401).json({ message: "Email hoặc mật khẩu không đúng" });
     }
-    const bcrypt = require("bcrypt");
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       return res.status(401).json({ message: "Email hoặc mật khẩu không đúng" });
@@ -155,21 +56,122 @@ async function loginTeacher(req, res) {
     console.error("Lỗi đăng nhập giáo viên:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-// Questions
-async function createQuestion(req, res) {
+// ========== Subjects & Chapters ==========
+
+exports.listSubjects = async (req, res) => {
+  try {
+    const subjects = await Subject.listSubjectsByTeacher(req.user.id);
+    res.status(200).json(subjects);
+  } catch (err) {
+    console.error("Lỗi lấy môn học:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.createSubject = async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ message: "Thiếu tên môn học" });
+  try {
+    const exists = await Subject.isSubjectNameExistForTeacher({ name, teacher_id: req.user.id });
+    if (exists) return res.status(409).json({ message: "Tên môn học đã tồn tại" });
+    const subject = await Subject.createSubject({ name, teacher_id: req.user.id });
+    res.status(201).json({ subject });
+  } catch (err) {
+    console.error("Lỗi thêm môn học:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.updateSubjectById = async (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ message: "Thiếu tên môn học" });
+  try {
+    const exists = await Subject.isSubjectNameExistForTeacher({ name, teacher_id: req.user.id, exclude_id: id });
+    if (exists) return res.status(409).json({ message: "Tên môn học đã tồn tại" });
+    const updated = await Subject.updateSubject({ id, teacher_id: req.user.id, name });
+    if (!updated) return res.status(404).json({ message: "Không tìm thấy môn học" });
+    res.status(200).json(updated);
+  } catch (err) {
+    console.error("Lỗi cập nhật môn học:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.deleteSubjectById = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const deleted = await Subject.deleteSubject({ id, teacher_id: req.user.id });
+    if (!deleted) return res.status(404).json({ message: "Không tìm thấy môn học" });
+    res.status(204).send();
+  } catch (err) {
+    console.error("Lỗi xóa môn học:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.listChaptersBySubject = async (req, res) => {
+  const { subjectId } = req.params;
+  try {
+    const chapters = await Subject.listChapters(subjectId, req.user.id);
+    res.status(200).json(chapters);
+  } catch (err) {
+    console.error("Lỗi lấy chương:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.createChapterForSubject = async (req, res) => {
+  const { subjectId } = req.params;
+  const { name, chapter_number } = req.body;
+  try {
+    const created = await Subject.createChapter(subjectId, req.user.id, { name, chapter_number });
+    if (!created) return res.status(404).json({ message: "Không tìm thấy môn học" });
+    res.status(201).json(created);
+  } catch (err) {
+    console.error("Lỗi tạo chương:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.updateChapterById = async (req, res) => {
+  const { id } = req.params;
+  const { name, chapter_number } = req.body;
+  try {
+    const updated = await Subject.updateChapter(id, req.user.id, { name, chapter_number });
+    if (!updated) return res.status(404).json({ message: "Không tìm thấy chương" });
+    res.status(200).json(updated);
+  } catch (err) {
+    console.error("Lỗi cập nhật chương:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.deleteChapterById = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const deleted = await Subject.deleteChapter(id, req.user.id);
+    if (!deleted) return res.status(404).json({ message: "Không tìm thấy chương" });
+    res.status(204).send();
+  } catch (err) {
+    console.error("Lỗi xóa chương:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+// ========== Questions ==========
+
+exports.createQuestion = async (req, res) => {
   const { subject_id, chapter_id, content, answers } = req.body;
-  
   if (!subject_id || !chapter_id || !content || !answers || answers.length < 2) {
     return res.status(400).json({ message: "Thiếu dữ liệu câu hỏi hoặc đáp án" });
   }
-
-  const hasCorrectAnswer = answers.some(answer => answer.is_correct === true);
+  const hasCorrectAnswer = answers.some(a => a.is_correct === true);
   if (!hasCorrectAnswer) {
     return res.status(400).json({ message: "Phải có ít nhất 1 đáp án đúng" });
   }
-
   try {
     const question = await Question.createQuestion({ subject_id, chapter_id, content, answers, teacher_id: req.user.id });
     res.status(201).json(question);
@@ -177,9 +179,9 @@ async function createQuestion(req, res) {
     console.error("Lỗi thêm câu hỏi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function listQuestions(req, res) {
+exports.listQuestions = async (req, res) => {
   try {
     const questions = await Question.listQuestionsByTeacher(req.user.id);
     res.status(200).json(questions);
@@ -187,9 +189,9 @@ async function listQuestions(req, res) {
     console.error("Lỗi lấy câu hỏi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getQuestionsBySubject(req, res) {
+exports.getQuestionsBySubject = async (req, res) => {
   const { subjectId } = req.params;
   try {
     const questions = await Question.getQuestionsBySubject(subjectId, req.user.id);
@@ -198,9 +200,9 @@ async function getQuestionsBySubject(req, res) {
     console.error("Lỗi lấy câu hỏi theo môn:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getQuestionsByChapter(req, res) {
+exports.getQuestionsByChapter = async (req, res) => {
   const { chapterId } = req.params;
   try {
     const questions = await Question.getQuestionsByChapter(chapterId, req.user.id);
@@ -209,12 +211,11 @@ async function getQuestionsByChapter(req, res) {
     console.error("Lỗi lấy câu hỏi theo chương:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function updateQuestion(req, res) {
+exports.updateQuestion = async (req, res) => {
   const { id } = req.params;
   const { content, answers } = req.body;
-  
   try {
     await Question.updateQuestion({ question_id: id, teacher_id: req.user.id, content, answers });
     res.status(200).json({ message: "Cập nhật câu hỏi thành công" });
@@ -222,23 +223,21 @@ async function updateQuestion(req, res) {
     console.error("Lỗi cập nhật câu hỏi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function deleteQuestion(req, res) {
+exports.deleteQuestion = async (req, res) => {
   const { id } = req.params;
   try {
     const deleted = await Question.deleteQuestion(id, req.user.id);
-    if (!deleted) {
-      return res.status(404).json({ message: "Không tìm thấy câu hỏi" });
-    }
+    if (!deleted) return res.status(404).json({ message: "Không tìm thấy câu hỏi" });
     res.status(204).send();
   } catch (err) {
     console.error("Lỗi xóa câu hỏi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getQuestionStats(req, res) {
+exports.getQuestionStats = async (req, res) => {
   const { subjectId } = req.params;
   try {
     const stats = await Question.getQuestionStats(subjectId, req.user.id);
@@ -247,10 +246,11 @@ async function getQuestionStats(req, res) {
     console.error("Lỗi lấy thống kê câu hỏi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-// Exams
-async function listExams(req, res) {
+// ========== Exams ==========
+
+exports.listExams = async (req, res) => {
   try {
     const exams = await Exam.listExamsByTeacher(req.user.id);
     res.status(200).json(exams);
@@ -258,42 +258,33 @@ async function listExams(req, res) {
     console.error("Lỗi lấy đề thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function createExam(req, res) {
+exports.createExam = async (req, res) => {
   const { subject_id, title, duration, question_ids, questions } = req.body;
-  
   if (!subject_id || !title || !duration) {
     return res.status(400).json({ message: "Thiếu thông tin đề thi" });
   }
-
   try {
     const exam = await Exam.createExam({ subject_id, title, duration, teacher_id: req.user.id });
-    
-    // Nếu có danh sách câu hỏi từ preview
     if (questions && questions.length > 0) {
       const questionIds = questions.map(q => q.id);
       await Exam.assignQuestionsToExam(exam.id, questionIds);
-    }
-    // Nếu có danh sách ID câu hỏi (cách cũ)
-    else if (question_ids && question_ids.length > 0) {
+    } else if (question_ids && question_ids.length > 0) {
       await Exam.assignQuestionsToExam(exam.id, question_ids);
     }
-    
     res.status(201).json(exam);
   } catch (err) {
     console.error("Lỗi tạo đề thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function generateExamPreview(req, res) {
+exports.generateExamPreview = async (req, res) => {
   const { subject_id, total_questions, time_limit, chapter_distribution } = req.body;
-  
   if (!subject_id || !total_questions || !chapter_distribution) {
     return res.status(400).json({ message: "Thiếu thông tin cấu hình đề thi" });
   }
-
   try {
     const previewQuestions = await Exam.generateExamPreview({
       subject_id,
@@ -301,65 +292,56 @@ async function generateExamPreview(req, res) {
       chapter_distribution,
       teacher_id: req.user.id
     });
-    
     res.status(200).json(previewQuestions);
   } catch (err) {
     console.error("Lỗi sinh preview đề thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getExamById(req, res) {
+exports.getExamById = async (req, res) => {
   const { id } = req.params;
   try {
     const exam = await Exam.getExamById(id, req.user.id);
-    if (!exam) {
-      return res.status(404).json({ message: "Không tìm thấy đề thi" });
-    }
+    if (!exam) return res.status(404).json({ message: "Không tìm thấy đề thi" });
     res.status(200).json(exam);
   } catch (err) {
     console.error("Lỗi lấy đề thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function updateExam(req, res) {
+exports.updateExam = async (req, res) => {
   const { id } = req.params;
   const { title, duration, question_ids } = req.body;
-  
   try {
     const updated = await Exam.updateExam({ exam_id: id, teacher_id: req.user.id, title, duration });
-    if (!updated) {
-      return res.status(404).json({ message: "Không tìm thấy đề thi" });
-    }
-    
+    if (!updated) return res.status(404).json({ message: "Không tìm thấy đề thi" });
     if (question_ids && question_ids.length > 0) {
       await Exam.assignQuestionsToExam(id, question_ids);
     }
-    
     res.status(200).json(updated);
   } catch (err) {
     console.error("Lỗi cập nhật đề thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function deleteExam(req, res) {
+exports.deleteExam = async (req, res) => {
   const { id } = req.params;
   try {
     const deleted = await Exam.deleteExam(id, req.user.id);
-    if (!deleted) {
-      return res.status(404).json({ message: "Không tìm thấy đề thi" });
-    }
+    if (!deleted) return res.status(404).json({ message: "Không tìm thấy đề thi" });
     res.status(204).send();
   } catch (err) {
     console.error("Lỗi xóa đề thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-// Sessions
-async function listSessions(req, res) {
+// ========== Sessions ==========
+
+exports.listSessions = async (req, res) => {
   try {
     const sessions = await Session.listSessionsByTeacher(req.user.id);
     res.status(200).json(sessions);
@@ -367,150 +349,103 @@ async function listSessions(req, res) {
     console.error("Lỗi lấy ca thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function createSession(req, res) {
+exports.createSession = async (req, res) => {
   const { exam_id, start_at, end_at, access_code } = req.body;
-  
   if (!exam_id || !start_at || !end_at) {
     return res.status(400).json({ message: "Thiếu thông tin bắt buộc: exam_id, start_at, end_at" });
   }
-
-  // Tạo mã truy cập ngẫu nhiên nếu không có
-  const finalAccessCode = access_code && access_code.trim() 
-    ? access_code.trim() 
-    : Math.random().toString(36).substring(2, 8).toUpperCase();
-
+  const finalAccessCode = access_code && access_code.trim() ? access_code.trim() : null;
   try {
-    const session = await Session.createSession({ 
-      exam_id, 
-      start_at, 
-      end_at, 
-      access_code: finalAccessCode, 
-      teacher_id: req.user.id 
+    const session = await Session.createSession({
+      exam_id, start_at, end_at, access_code: finalAccessCode, teacher_id: req.user.id
     });
-    
-    if (!session) {
-      return res.status(404).json({ message: "Không tìm thấy đề thi hoặc không có quyền truy cập" });
-    }
-    
+    if (!session) return res.status(404).json({ message: "Không tìm thấy đề thi hoặc không có quyền truy cập" });
     res.status(201).json(session);
   } catch (err) {
     console.error("Lỗi tạo ca thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function updateSession(req, res) {
+exports.updateSession = async (req, res) => {
   const { id } = req.params;
   const { exam_id, start_at, end_at, access_code } = req.body;
-  
   if (!exam_id || !start_at || !end_at) {
     return res.status(400).json({ message: "Thiếu thông tin bắt buộc: exam_id, start_at, end_at" });
   }
-
   try {
-    const updated = await Session.updateSession({ 
-      session_id: id, 
-      teacher_id: req.user.id, 
-      exam_id,
-      start_at, 
-      end_at, 
-      access_code 
+    const updated = await Session.updateSession({
+      session_id: id, teacher_id: req.user.id, exam_id, start_at, end_at, access_code
     });
-    
-    if (!updated) {
-      return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
-    }
-    
+    if (!updated) return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
     res.status(200).json(updated);
   } catch (err) {
     console.error("Lỗi cập nhật ca thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function deleteSession(req, res) {
+exports.deleteSession = async (req, res) => {
   const { id } = req.params;
-  
   try {
-    // Kiểm tra xem ca thi có đang diễn ra không
     const session = await Session.getSessionById(id, req.user.id);
-    if (!session) {
-      return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
-    }
+    if (!session) return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
 
     const now = new Date();
     const startTime = new Date(session.start_at);
     const endTime = new Date(session.end_at);
-    
     if (now >= startTime && now <= endTime) {
       return res.status(409).json({ message: "Không thể xóa ca thi đang diễn ra" });
     }
 
-    // Kiểm tra xem có thí sinh nào đã tham gia không
     const attemptsCheck = await pool.query(
       "SELECT COUNT(*) as count FROM attempts WHERE session_id = $1",
       [id]
     );
-    
-    if (attemptsCheck.rows[0].count > 0) {
+    if (Number(attemptsCheck.rows[0].count) > 0) {
       return res.status(409).json({ message: "Không thể xóa ca thi đã có thí sinh tham gia" });
     }
 
-    const deleted = await Session.deleteSession(id, req.user.id);
+    await Session.deleteSession(id, req.user.id);
     res.status(204).send();
   } catch (err) {
     console.error("Lỗi xóa ca thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getSessionById(req, res) {
+exports.getSessionById = async (req, res) => {
   const { id } = req.params;
-  
   try {
     const session = await Session.getSessionById(id, req.user.id);
-    
-    if (!session) {
-      return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
-    }
-    
+    if (!session) return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
     res.status(200).json(session);
   } catch (err) {
     console.error("Lỗi lấy chi tiết ca thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getSessionProctor(req, res) {
+exports.getSessionProctor = async (req, res) => {
   const { id } = req.params;
-  
   try {
-    // Kiểm tra quyền truy cập session
     const session = await Session.getSessionById(id, req.user.id);
-    if (!session) {
-      return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
-    }
-
+    if (!session) return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
     const proctor = await Session.getSessionProctor(id);
     res.status(200).json(proctor);
   } catch (err) {
     console.error("Lỗi lấy thông tin giám thị:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function cancelSession(req, res) {
+exports.cancelSession = async (req, res) => {
   const { id } = req.params;
-  
   try {
     const cancelled = await Session.cancelSession(id, req.user.id);
-    
-    if (!cancelled) {
-      return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
-    }
-    
+    if (!cancelled) return res.status(404).json({ message: "Không tìm thấy ca thi hoặc không có quyền truy cập" });
     res.status(200).json({ message: "Hủy ca thi thành công", session: cancelled });
   } catch (err) {
     console.error("Lỗi hủy ca thi:", err.message);
@@ -520,9 +455,9 @@ async function cancelSession(req, res) {
       res.status(500).json({ message: "Lỗi server" });
     }
   }
-}
+};
 
-async function updateSessionStatuses(req, res) {
+exports.updateSessionStatuses = async (_req, res) => {
   try {
     const result = await Session.updateSessionStatuses();
     res.status(200).json({ message: "Cập nhật status thành công", ...result });
@@ -530,24 +465,23 @@ async function updateSessionStatuses(req, res) {
     console.error("Lỗi cập nhật status:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getSessionStats(req, res) {
+exports.getSessionStats = async (req, res) => {
   const { id } = req.params;
   try {
     const stats = await Session.getSessionStats(id, req.user.id);
-    if (!stats) {
-      return res.status(404).json({ message: "Không tìm thấy ca thi" });
-    }
+    if (!stats) return res.status(404).json({ message: "Không tìm thấy ca thi" });
     res.status(200).json(stats);
   } catch (err) {
     console.error("Lỗi lấy thống kê ca thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-// Special endpoints that were previously inline in routes
-async function saveExamSetChapterDistribution(req, res) {
+// ========== Special / Tools ==========
+
+exports.saveExamSetChapterDistribution = async (req, res) => {
   const { examSetId } = req.params;
   const { distribution } = req.body; // [{chapter_id, num_questions}]
   if (!Array.isArray(distribution) || distribution.length === 0) {
@@ -576,9 +510,9 @@ async function saveExamSetChapterDistribution(req, res) {
   } finally {
     client.release();
   }
-}
+};
 
-async function shuffleExam(req, res) {
+exports.shuffleExam = async (req, res) => {
   const { subject_id, title, duration, num_questions, chapter_distribution } = req.body;
   if (!subject_id || !title || !duration || !num_questions || !chapter_distribution) {
     return res.status(400).json({ message: "Thiếu thông tin đề thi" });
@@ -596,6 +530,7 @@ async function shuffleExam(req, res) {
       [examId, title]
     );
     const examSetId = examSetResult.rows[0].id;
+
     const selectedQuestions = [];
     for (const dist of chapter_distribution) {
       const questionsResult = await client.query(
@@ -606,12 +541,14 @@ async function shuffleExam(req, res) {
       );
       selectedQuestions.push(...questionsResult.rows.map((q) => q.id));
     }
+
     for (let i = 0; i < selectedQuestions.length; i++) {
       await client.query(
         "INSERT INTO exam_set_questions (exam_set_id, question_id, order_index) VALUES ($1, $2, $3)",
         [examSetId, selectedQuestions[i], i + 1]
       );
     }
+
     await client.query("COMMIT");
     res.status(201).json({ exam: examResult.rows[0], exam_set: examSetResult.rows[0] });
   } catch (err) {
@@ -621,9 +558,9 @@ async function shuffleExam(req, res) {
   } finally {
     client.release();
   }
-}
+};
 
-async function listAvailableProctors(req, res) {
+exports.listAvailableProctors = async (_req, res) => {
   try {
     const result = await pool.query(
       "SELECT id, full_name, email FROM users WHERE role IN ('teacher', 'proctor') ORDER BY full_name"
@@ -633,9 +570,9 @@ async function listAvailableProctors(req, res) {
     console.error("Lỗi lấy danh sách giám thị:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function listExamSessions(req, res) {
+exports.listExamSessions = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT se.*, e.title AS exam_title, s.name AS subject_name
@@ -651,9 +588,9 @@ async function listExamSessions(req, res) {
     console.error("Lỗi lấy danh sách ca thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function listAttemptsDebug(req, res) {
+exports.listAttemptsDebug = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT a.*, u.full_name, e.title as exam_title
@@ -671,13 +608,14 @@ async function listAttemptsDebug(req, res) {
     console.error("Lỗi lấy attempts:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getStudentAttemptInSession(req, res) {
+exports.getStudentAttemptInSession = async (req, res) => {
   const { sessionId, studentId } = req.params;
   try {
-    const result = await pool.query(
-      `SELECT a.*, u.full_name, e.title as exam_title
+    // Lấy thông tin cơ bản của attempt
+    const attemptResult = await pool.query(
+      `SELECT a.*, u.full_name as student, e.title as exam_title
        FROM attempts a
        JOIN users u ON a.student_id = u.id
        JOIN exam_sessions se ON a.session_id = se.id
@@ -686,19 +624,83 @@ async function getStudentAttemptInSession(req, res) {
        WHERE a.session_id = $1 AND a.student_id = $2 AND s.teacher_id = $3`,
       [sessionId, studentId, req.user.id]
     );
-    if (result.rows.length === 0) {
+    
+    if (attemptResult.rows.length === 0) {
       return res.status(404).json({ message: "Không tìm thấy bài làm" });
     }
-    res.json({ attempt: result.rows[0] });
+    
+    const attempt = attemptResult.rows[0];
+    
+    // Lấy chi tiết câu trả lời của sinh viên
+    const answersResult = await pool.query(
+      `SELECT 
+         q.id as question_id,
+         q.content as question_content,
+         qa.id as answer_id,
+         qa.content as answer_content,
+         qa.label,
+         qa.is_correct,
+         sa.chosen_answer_id,
+         CASE WHEN sa.chosen_answer_id = qa.id THEN qa.label ELSE NULL END as chosen_answer_label,
+         CASE WHEN sa.chosen_answer_id = qa.id THEN qa.is_correct ELSE NULL END as is_correct
+       FROM questions q
+       JOIN question_answers qa ON q.id = qa.question_id
+       LEFT JOIN student_answers sa ON q.id = sa.question_id AND sa.attempt_id = $1
+       WHERE q.id IN (
+         SELECT DISTINCT q2.id 
+         FROM questions q2
+         JOIN exam_set_questions esq ON q2.id = esq.question_id
+         JOIN exam_sessions es ON esq.exam_set_id = es.exam_set_id
+         WHERE es.id = $2
+       )
+       ORDER BY q.id, qa.id`,
+      [attempt.id, sessionId]
+    );
+    
+    // Nhóm câu trả lời theo câu hỏi
+    const answersByQuestion = {};
+    answersResult.rows.forEach(row => {
+      if (!answersByQuestion[row.question_id]) {
+        answersByQuestion[row.question_id] = {
+          question_content: row.question_content,
+          all_answers: [],
+          chosen_answer_label: null,
+          is_correct: false
+        };
+      }
+      
+      answersByQuestion[row.question_id].all_answers.push({
+        id: row.answer_id,
+        content: row.answer_content,
+        label: row.label,
+        is_correct: row.is_correct
+      });
+      
+      if (row.chosen_answer_label) {
+        answersByQuestion[row.question_id].chosen_answer_label = row.chosen_answer_label;
+        answersByQuestion[row.question_id].is_correct = row.is_correct;
+      }
+    });
+    
+    // Chuyển đổi thành array
+    const answers = Object.values(answersByQuestion);
+    
+    res.json({
+      student: attempt.student,
+      score: attempt.score,
+      correct_answers: attempt.correct_answers,
+      total_questions: attempt.total_questions,
+      submitted_at: attempt.submitted_at,
+      answers: answers
+    });
   } catch (err) {
     console.error("Lỗi lấy chi tiết bài làm:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getQuestionsByChapterForReplacement(req, res) {
+exports.getQuestionsByChapterForReplacement = async (req, res) => {
   const { chapterId } = req.params;
-  
   try {
     const questions = await Question.getQuestionsByChapter(chapterId, req.user.id);
     res.status(200).json(questions);
@@ -706,94 +708,70 @@ async function getQuestionsByChapterForReplacement(req, res) {
     console.error("Lỗi lấy câu hỏi theo chương:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getAvailableProctors(req, res) {
-  try {
-    const proctors = await User.getAvailableProctors();
-    res.status(200).json(proctors);
-  } catch (err) {
-    console.error("Lỗi lấy danh sách giám thị:", err.message);
-    res.status(500).json({ message: "Lỗi server" });
-  }
-}
-
-async function assignProctorsToSession(req, res) {
+exports.assignProctorsToSession = async (req, res) => {
   const { sessionId } = req.params;
   const { proctorIds } = req.body;
-  
-  try {
-    const client = await pool.connect();
-    await client.query("BEGIN");
-    
-    // Xóa phân công cũ
-    await client.query("DELETE FROM proctor_assignments WHERE session_id = $1", [sessionId]);
-    
-    // Thêm phân công mới
-    for (const proctorId of proctorIds) {
-      await client.query(
-        "INSERT INTO proctor_assignments (session_id, proctor_id) VALUES ($1, $2)",
-        [sessionId, proctorId]
-      );
-    }
-    
-    await client.query("COMMIT");
-    res.status(200).json({ message: "Phân công giám thị thành công" });
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("Lỗi phân công giám thị:", err.message);
-    res.status(500).json({ message: "Lỗi server" });
-  } finally {
-    client.release();
+  if (!proctorIds || proctorIds.length === 0) {
+    return res.status(400).json({ message: "Vui lòng chọn ít nhất một giám thị" });
   }
-}
-
-async function assignSingleProctor(req, res) {
-  const { session_id, proctor_id } = req.body;
-  
-  if (!session_id || !proctor_id) {
-    return res.status(400).json({ message: "Thiếu thông tin session_id hoặc proctor_id" });
-  }
-
   try {
-    // Kiểm tra session có thuộc về teacher này không
-    const sessionCheck = await ProctorAssignment.checkSessionOwnership(session_id, req.user.id);
+    const proctorId = proctorIds[0];
+    const sessionCheck = await ProctorAssignment.checkSessionOwnership(sessionId, req.user.id);
     if (!sessionCheck) {
       return res.status(403).json({ message: "Bạn không có quyền phân công giám thị cho ca thi này" });
     }
-
-    // Kiểm tra proctor có tồn tại và có quyền làm giám thị không
-    const proctor = await User.getProctorById(proctor_id);
+    const proctor = await User.getProctorById(proctorId);
     if (!proctor) {
       return res.status(404).json({ message: "Không tìm thấy giám thị hoặc giám thị không có quyền" });
     }
-
-    // Kiểm tra proctor có bận ca thi nào khác trong cùng thời gian không
-    const conflicts = await User.checkProctorConflict(proctor_id, session_id);
+    const conflicts = await User.checkProctorConflict(proctorId, sessionId);
     if (conflicts.length > 0) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: "Giám thị đã được phân công ca thi khác trong cùng thời gian",
         conflict: conflicts[0]
       });
     }
-
-    // Cập nhật proctor cho session
-    const session = await ProctorAssignment.assignProctorToSession(session_id, proctor_id);
-
-    res.json({ 
-      message: "Phân công giám thị thành công",
-      session,
-      proctor
-    });
+    const session = await ProctorAssignment.assignProctorToSession(sessionId, proctorId);
+    res.json({ message: "Phân công giám thị thành công", session, proctor });
   } catch (err) {
     console.error("Lỗi phân công giám thị:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getExamSets(req, res) {
+exports.assignSingleProctor = async (req, res) => {
+  const { session_id, proctor_id } = req.body;
+  if (!session_id || !proctor_id) {
+    return res.status(400).json({ message: "Thiếu thông tin session_id hoặc proctor_id" });
+  }
+  try {
+    const sessionCheck = await ProctorAssignment.checkSessionOwnership(session_id, req.user.id);
+    if (!sessionCheck) {
+      return res.status(403).json({ message: "Bạn không có quyền phân công giám thị cho ca thi này" });
+    }
+    const proctor = await User.getProctorById(proctor_id);
+    if (!proctor) {
+      return res.status(404).json({ message: "Không tìm thấy giám thị hoặc giám thị không có quyền" });
+    }
+    const conflicts = await User.checkProctorConflict(proctor_id, session_id);
+    if (conflicts.length > 0) {
+      return res.status(400).json({
+        message: "Giám thị đã được phân công ca thi khác trong cùng thời gian",
+        conflict: conflicts[0]
+      });
+    }
+    const session = await ProctorAssignment.assignProctorToSession(session_id, proctor_id);
+    res.json({ message: "Phân công giám thị thành công", session, proctor });
+  } catch (err) {
+    console.error("Lỗi phân công giám thị:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.getExamSets = async (req, res) => {
   const { examId } = req.params;
-  
   try {
     const examSets = await ExamSet.getExamSetsByExam(examId);
     res.status(200).json(examSets);
@@ -801,57 +779,16 @@ async function getExamSets(req, res) {
     console.error("Lỗi lấy danh sách bộ đề:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function shuffleExam(req, res) {
-  const { examId } = req.params;
-  const { count } = req.body;
-  
-  // Validate input
-  if (!count || count < 1 || count > 20) {
-    return res.status(400).json({ message: "Số lượng bộ đề phải từ 1 đến 20" });
-  }
-  
-  try {
-    // Lấy thông tin đề thi
-    const exam = await Exam.getExamById(examId, req.user.id);
-    if (!exam) {
-      return res.status(404).json({ message: "Không tìm thấy đề thi" });
-    }
-    
-    // Kiểm tra xem có bộ đề gốc chưa
-    const hasOriginalSet = await ExamSet.checkOriginalExamSetExists(examId);
-    if (!hasOriginalSet) {
-      return res.status(400).json({ message: "Đề thi chưa có câu hỏi. Vui lòng tạo đề thi với câu hỏi trước." });
-    }
-    
-    // Lấy câu hỏi từ bộ đề gốc
-    const originalQuestions = await ExamSet.getOriginalExamSetQuestions(examId);
-    if (originalQuestions.length === 0) {
-      return res.status(400).json({ message: "Đề thi chưa có câu hỏi" });
-    }
-    
-    // Tạo các bộ đề mới
-    await ExamSet.createShuffledExamSets(examId, count, originalQuestions);
-    
-    res.status(200).json({ message: `Đã tạo ${count} bộ đề thi thành công` });
-  } catch (err) {
-    console.error("Lỗi trộn đề thi:", err.message);
-    res.status(500).json({ message: "Lỗi server: " + err.message });
-  }
-}
-
-async function getExamSetQuestions(req, res) {
+exports.getExamSetQuestions = async (req, res) => {
   const { examSetId } = req.params;
-  
   try {
-    const questions = await ExamSet.getExamSetQuestions(examSetId);
-    
-    // Group answers by question
-    const questionsWithAnswers = questions.reduce((acc, row) => {
-      const questionId = row.id;
-      if (!acc[questionId]) {
-        acc[questionId] = {
+    const rows = await ExamSet.getExamSetQuestions(examSetId);
+    const grouped = rows.reduce((acc, row) => {
+      const qid = row.id;
+      if (!acc[qid]) {
+        acc[qid] = {
           id: row.id,
           content: row.content,
           chapter_name: row.chapter_name,
@@ -859,71 +796,18 @@ async function getExamSetQuestions(req, res) {
           answers: []
         };
       }
-      
       if (row.label) {
-        acc[questionId].answers.push({
+        acc[qid].answers.push({
           label: row.label,
           content: row.answer_content,
           is_correct: row.is_correct
         });
       }
-      
       return acc;
     }, {});
-    
-    const result = Object.values(questionsWithAnswers);
-    res.status(200).json(result);
+    res.status(200).json(Object.values(grouped));
   } catch (err) {
     console.error("Lỗi lấy câu hỏi bộ đề:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
-
-module.exports = {
-  registerTeacher,
-  loginTeacher,
-  listSubjects,
-  createSubject,
-  updateSubjectById,
-  deleteSubjectById,
-  listChaptersBySubject,
-  createChapterForSubject,
-  updateChapterById,
-  deleteChapterById,
-  createQuestion,
-  listQuestions,
-  getQuestionsBySubject,
-  getQuestionsByChapter,
-  updateQuestion,
-  deleteQuestion,
-  getQuestionStats,
-  listExams,
-  createExam,
-  generateExamPreview,
-  getExamById,
-  updateExam,
-  deleteExam,
-  listSessions,
-  createSession,
-  updateSession,
-  deleteSession,
-  getSessionById,
-  getSessionProctor,
-  cancelSession,
-  updateSessionStatuses,
-  getSessionStats,
-  saveExamSetChapterDistribution,
-  shuffleExam,
-  listAvailableProctors,
-  listExamSessions,
-  listAttemptsDebug,
-  getStudentAttemptInSession,
-  getQuestionsByChapterForReplacement,
-  getAvailableProctors,
-  assignProctorsToSession,
-  assignSingleProctor,
-  getExamSets,
-  getExamSetQuestions,
 };
-
-

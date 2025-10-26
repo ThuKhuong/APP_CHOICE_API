@@ -4,17 +4,9 @@ const User = require("../models/User");
 const ProctorAssignment = require("../models/ProctorAssignment");
 const ProctorDashboard = require("../models/ProctorDashboard");
 
-async function getDashboard(req, res) {
-  try {
-    const data = await ProctorDashboard.getDashboardData();
-    res.json(data);
-  } catch (err) {
-    console.error("Lỗi lấy dashboard:", err.message);
-    res.status(500).json({ message: "Lỗi server" });
-  }
-}
+// Removed unused getDashboard function
 
-async function getAssignedSessions(req, res) {
+exports.getAssignedSessions = async function(req, res) {
   const proctorId = req.user.id;
 
   try {
@@ -24,9 +16,9 @@ async function getAssignedSessions(req, res) {
     console.error("Lỗi lấy ca thi được phân công:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getSessionDetails(req, res) {
+exports.getSessionDetails = async function(req, res) {
   const { sessionId } = req.params;
   const proctorId = req.user.id;
 
@@ -40,9 +32,25 @@ async function getSessionDetails(req, res) {
     }
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function recordViolation(req, res) {
+exports.getSessionStudents = async function(req, res) {
+  const { sessionId } = req.params;
+  const proctorId = req.user.id;
+
+  try {
+    const data = await ProctorAssignment.getSessionStudents(sessionId, proctorId);
+    res.json(data);
+  } catch (err) {
+    console.error("Lỗi lấy danh sách thí sinh:", err.message);
+    if (err.message === "Bạn không được phân công ca thi này") {
+      return res.status(403).json({ message: err.message });
+    }
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.recordViolation = async function(req, res) {
   const { attempt_id, type, description } = req.body;
   const proctorId = req.user.id;
 
@@ -56,9 +64,34 @@ async function recordViolation(req, res) {
     }
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function reportIncident(req, res) {
+exports.lockAttempt = async function(req, res) {
+  const { attemptId } = req.params;
+  const proctorId = req.user.id;
+  const { reason, violation_type = 'other' } = req.body;
+
+  try {
+    // Kiểm tra quyền khóa bài thi
+    const result = await ProctorAssignment.lockAttempt(attemptId, proctorId, reason);
+    
+    // Sử dụng Stored Procedure để khóa bài và tính điểm
+    await pool.query(
+      'SELECT sp_lock_attempt_for_violation($1, $2, $3)',
+      [attemptId, violation_type, reason]
+    );
+    
+    res.json({ message: "Khóa bài thi thành công", attempt: result });
+  } catch (err) {
+    console.error("Lỗi khóa bài thi:", err.message);
+    if (err.message === "Bạn không có quyền khóa bài thi này") {
+      return res.status(403).json({ message: err.message });
+    }
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.reportIncident = async function(req, res) {
   const { session_id, type, description, severity } = req.body;
   const proctorId = req.user.id;
 
@@ -72,25 +105,11 @@ async function reportIncident(req, res) {
     }
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getStudentMonitor(req, res) {
-  const { studentId } = req.params;
-  const proctorId = req.user.id;
+// Removed unused getStudentMonitor function
 
-  try {
-    const data = await ProctorDashboard.getStudentMonitor(studentId, proctorId);
-    res.json(data);
-  } catch (err) {
-    console.error("Lỗi lấy thông tin giám sát sinh viên:", err.message);
-    if (err.message === "Không tìm thấy sinh viên hoặc bạn không được phân công giám sát") {
-      return res.status(404).json({ message: err.message });
-    }
-    res.status(500).json({ message: "Lỗi server" });
-  }
-}
-
-async function getAvailableProctors(req, res) {
+exports.getAvailableProctors = async function(req, res) {
   try {
     const proctors = await User.getAvailableProctors();
     res.json(proctors);
@@ -98,14 +117,33 @@ async function getAvailableProctors(req, res) {
     console.error("Lỗi lấy danh sách giám thị có sẵn:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-module.exports = {
-  getDashboard,
-  getAssignedSessions,
-  getSessionDetails,
-  recordViolation,
-  reportIncident,
-  getStudentMonitor,
-  getAvailableProctors,
+exports.getIssueReports = async function(req, res) {
+  const proctorId = req.user.id;
+
+  try {
+    const reports = await ProctorAssignment.getIssueReports(proctorId);
+    res.json(reports);
+  } catch (err) {
+    console.error("Lỗi lấy danh sách báo lỗi:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.resolveIssueReport = async function(req, res) {
+  const { reportId } = req.params;
+  const proctorId = req.user.id;
+  const { action, replacement_question_id, note } = req.body;
+
+  try {
+    const result = await ProctorAssignment.resolveIssueReport(reportId, proctorId, action, replacement_question_id, note);
+    res.json({ message: "Xử lý báo lỗi thành công", result });
+  } catch (err) {
+    console.error("Lỗi xử lý báo lỗi:", err.message);
+    if (err.message === "Bạn không có quyền xử lý báo lỗi này") {
+      return res.status(403).json({ message: err.message });
+    }
+    res.status(500).json({ message: "Lỗi server" });
+  }
 };

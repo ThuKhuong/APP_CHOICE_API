@@ -1,7 +1,7 @@
 const Attempt = require("../models/Attempt");
 const Session = require("../models/Session");
 
-async function startExam(req, res) {
+exports.startExam = async function(req, res) {
   const { access_code } = req.body;
   const studentId = req.user.id;
 
@@ -28,8 +28,13 @@ async function startExam(req, res) {
     let attempt = await Attempt.getAttemptBySessionAndStudent(session.id, studentId);
     
     if (!attempt) {
-      // Tạo attempt mới
-      attempt = await Attempt.createAttempt({ session_id: session.id, student_id: studentId });
+      // Sử dụng Stored Procedure để tạo attempt và gán mã đề ngẫu nhiên
+      const pool = require("../db");
+      const result = await pool.query(
+        'SELECT * FROM sp_start_exam_attempt($1, $2)',
+        [session.id, studentId]
+      );
+      attempt = result.rows[0];
     } else if (attempt.submitted_at) {
       return res.status(403).json({ message: "Bạn đã nộp bài, không thể vào lại ca thi này." });
     }
@@ -52,9 +57,9 @@ async function startExam(req, res) {
     console.error("Lỗi bắt đầu làm bài:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function saveAnswer(req, res) {
+exports.saveAnswer = async function(req, res) {
   const { attempt_id, question_id, chosen_choice } = req.body;
   const studentId = req.user.id;
 
@@ -75,9 +80,9 @@ async function saveAnswer(req, res) {
     console.error("Lỗi lưu đáp án:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function removeAnswer(req, res) {
+exports.removeAnswer = async function(req, res) {
   const { attempt_id, question_id } = req.body;
   const studentId = req.user.id;
 
@@ -97,9 +102,9 @@ async function removeAnswer(req, res) {
     console.error("Lỗi xóa đáp án:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function submitExam(req, res) {
+exports.submitExam = async function(req, res) {
   const { attempt_id } = req.body;
   const studentId = req.user.id;
 
@@ -110,9 +115,15 @@ async function submitExam(req, res) {
       return res.status(404).json({ message: "Không tìm thấy bài thi" });
     }
 
-    // Tính điểm (logic tính điểm có thể được thêm vào đây)
-    // const score = await calculateScore(attempt_id);
-    // await pool.query("UPDATE attempts SET score = $1 WHERE id = $2", [score, attempt_id]);
+    // Sử dụng Stored Procedure để tính điểm tự động
+    // Trigger sẽ tự động gọi sp_submit_exam_and_calculate_score khi UPDATE status
+    const pool = require("../db");
+    const result = await pool.query(
+      'SELECT sp_submit_exam_and_calculate_score($1) as score',
+      [attempt_id]
+    );
+    
+    const finalScore = result.rows[0].score;
 
     res.json({
       message: "Nộp bài thành công",
@@ -120,16 +131,16 @@ async function submitExam(req, res) {
         id: attempt.id,
         status: attempt.status,
         submitted_at: attempt.submitted_at,
-        score: attempt.score
+        score: finalScore
       }
     });
   } catch (err) {
     console.error("Lỗi nộp bài:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getAttemptDetails(req, res) {
+exports.getAttemptDetails = async function(req, res) {
   const { id } = req.params;
   const studentId = req.user.id;
 
@@ -145,9 +156,9 @@ async function getAttemptDetails(req, res) {
     console.error("Lỗi lấy chi tiết bài thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getStudentHistory(req, res) {
+exports.getStudentHistory = async function(req, res) {
   const studentId = req.user.id;
 
   try {
@@ -157,13 +168,4 @@ async function getStudentHistory(req, res) {
     console.error("Lỗi lấy lịch sử thi:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
-
-module.exports = {
-  startExam,
-  saveAnswer,
-  removeAnswer,
-  submitExam,
-  getAttemptDetails,
-  getStudentHistory,
 };

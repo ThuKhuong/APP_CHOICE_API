@@ -7,12 +7,7 @@ const router = express.Router();
 // Auth guard for all admin routes
 router.use(requireAuth);
 
-// PROCTOR MANAGEMENT
-router.post("/proctors", allowRoles("admin"), adminController.createProctor);
-router.get("/proctors", allowRoles("admin"), adminController.listProctors);
-router.get("/proctors/:proctorId", allowRoles("admin"), adminController.getProctorDetails);
-router.put("/proctors/:proctorId/status", allowRoles("admin"), adminController.updateProctorStatus);
-router.put("/proctors/:proctorId/role", allowRoles("admin"), adminController.changeProctorRole);
+// PROCTOR MANAGEMENT - Removed unused routes
 
 // USER MANAGEMENT
 router.get("/users", allowRoles("admin"), adminController.listUsers);
@@ -23,5 +18,6 @@ router.put("/users/:id/status", allowRoles("admin"), adminController.updateUserS
 
 // DASHBOARD
 router.get("/dashboard", allowRoles("admin"), adminController.dashboard);
+router.get("/exams", allowRoles("admin"), adminController.getAllExams);
 
 module.exports = router;

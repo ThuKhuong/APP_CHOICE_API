@@ -76,9 +76,20 @@ function checkRole(role) {
       return res.status(401).json({ message: "Chưa xác thực" });
     }
 
-    if (req.user.role !== role) {
+    // Hỗ trợ multi-role: kiểm tra user có role được yêu cầu không
+    const userRoles = Array.isArray(req.user.role) ? req.user.role : [req.user.role];
+    const hasAccess = userRoles.includes(role);
+    
+    if (!hasAccess) {
       return res.status(403).json({ 
-        message: `Yêu cầu role ${role}. Role hiện tại: ${req.user.role}` 
+        message: `Yêu cầu role ${role}. Role hiện tại: ${userRoles.join(', ')}` 
+      });
+    }
+
+    // Kiểm tra trạng thái tài khoản
+    if (req.user.status === 0) {
+      return res.status(403).json({ 
+        message: "Tài khoản chưa được kích hoạt. Vui lòng liên hệ quản trị viên" 
       });
     }
 

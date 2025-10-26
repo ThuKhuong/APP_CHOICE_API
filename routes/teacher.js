@@ -58,32 +58,17 @@ router.delete("/sessions/:id", allowRoles("teacher"), teacherController.deleteSe
 router.put("/sessions/:id/cancel", allowRoles("teacher"), teacherController.cancelSession);
 router.post("/sessions/update-statuses", allowRoles("teacher"), teacherController.updateSessionStatuses);
 
-// EXAM-SESSIONS - Alternative endpoints
+// EXAM-SESSIONS - Alias for sessions (for frontend compatibility)
 router.get("/exam-sessions", allowRoles("teacher"), teacherController.listSessions);
 router.get("/exam-sessions/:id", allowRoles("teacher"), teacherController.getSessionById);
-router.get("/exam-sessions/:id/proctor", allowRoles("teacher"), teacherController.getSessionProctor);
-router.post("/exam-sessions", allowRoles("teacher"), teacherController.createSession);
-router.put("/exam-sessions/:id", allowRoles("teacher"), teacherController.updateSession);
-router.delete("/exam-sessions/:id", allowRoles("teacher"), teacherController.deleteSession);
-router.put("/exam-sessions/:id/cancel", allowRoles("teacher"), teacherController.cancelSession);
 
 // PROCTORS - Giám thị
-router.get("/proctors", allowRoles("teacher"), teacherController.getAvailableProctors);
+router.get("/proctors", allowRoles("teacher"), teacherController.listAvailableProctors);
 router.post("/sessions/:sessionId/proctors", allowRoles("teacher"), teacherController.assignProctorsToSession);
 router.post("/proctor-assignments", allowRoles("teacher"), teacherController.assignSingleProctor);
 router.get("/exam-sessions/:id/results", allowRoles("teacher"), teacherController.getSessionStats);
-
-// Các routes đặc biệt cần logic phức tạp (tạm thời giữ nguyên)
-router.post("/exam-sets/:examSetId/chapter-distribution", allowRoles("teacher"), teacherController.saveExamSetChapterDistribution);
-
-router.post("/exams/shuffle", allowRoles("teacher"), teacherController.shuffleExam);
-
-router.get("/available-proctors", allowRoles("teacher"), teacherController.listAvailableProctors);
-
-router.get("/exam-sessions", allowRoles("teacher"), teacherController.listExamSessions);
-
-router.get("/debug/attempts", allowRoles("teacher"), teacherController.listAttemptsDebug);
-
 router.get("/exam-sessions/:sessionId/student/:studentId", allowRoles("teacher"), teacherController.getStudentAttemptInSession);
+
+// Special routes - Removed unused/duplicate routes
 
 module.exports = router;

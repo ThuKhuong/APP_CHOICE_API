@@ -1,23 +1,23 @@
 const pool = require("../db");
 
-async function createAttempt({ session_id, student_id }) {
+exports.createAttempt = async function({ session_id, student_id }) {
   const result = await pool.query(
     `INSERT INTO attempts (session_id, student_id, status, started_at)
      VALUES ($1, $2, 'in_progress', NOW()) RETURNING *`,
     [session_id, student_id]
   );
   return result.rows[0];
-}
+};
 
-async function getAttemptBySessionAndStudent(session_id, student_id) {
+exports.getAttemptBySessionAndStudent = async function(session_id, student_id) {
   const result = await pool.query(
     "SELECT * FROM attempts WHERE session_id = $1 AND student_id = $2",
     [session_id, student_id]
   );
   return result.rows[0] || null;
-}
+};
 
-async function getAttemptById(attempt_id, student_id) {
+exports.getAttemptById = async function(attempt_id, student_id) {
   const result = await pool.query(
     `SELECT a.*, se.access_code, e.title AS exam_title, s.name AS subject_name
      FROM attempts a
@@ -28,62 +28,50 @@ async function getAttemptById(attempt_id, student_id) {
     [attempt_id, student_id]
   );
   return result.rows[0] || null;
-}
+};
 
-async function submitAttempt(attempt_id, student_id) {
+exports.submitAttempt = async function(attempt_id, student_id) {
   const result = await pool.query(
     `UPDATE attempts 
-     SET status = 'submitted', submitted_at = NOW()
-     WHERE id = $1 AND student_id = $2
+     SET status = 'submitted', submitted_at = NOW() 
+     WHERE id = $1 AND student_id = $2 
      RETURNING *`,
     [attempt_id, student_id]
   );
   return result.rows[0] || null;
-}
+};
 
-async function saveAnswer({ attempt_id, question_id, answer_id, student_id }) {
-  // Kiểm tra attempt thuộc về student
-  const attemptCheck = await pool.query(
-    "SELECT 1 FROM attempts WHERE id = $1 AND student_id = $2",
-    [attempt_id, student_id]
-  );
-  
-  if (attemptCheck.rows.length === 0) {
-    return null;
-  }
-  
+exports.saveAnswer = async function({ attempt_id, question_id, answer_id, student_id }) {
   const result = await pool.query(
-    `INSERT INTO attempt_answers (attempt_id, question_id, answer_id)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (attempt_id, question_id)
-     DO UPDATE SET answer_id = $3, updated_at = NOW()
+    `INSERT INTO attempt_answers (attempt_id, question_id, chosen_answer_id, student_id)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (attempt_id, question_id) 
+     DO UPDATE SET chosen_answer_id = $3, updated_at = NOW()
      RETURNING *`,
-    [attempt_id, question_id, answer_id]
+    [attempt_id, question_id, answer_id, student_id]
   );
   return result.rows[0];
-}
+};
 
-async function removeAnswer({ attempt_id, question_id, student_id }) {
+exports.removeAnswer = async function({ attempt_id, question_id, student_id }) {
   const result = await pool.query(
     `DELETE FROM attempt_answers 
-     WHERE attempt_id = $1 AND question_id = $2
-     AND attempt_id IN (SELECT id FROM attempts WHERE student_id = $3)
-     RETURNING *`,
+     WHERE attempt_id = $1 AND question_id = $2 AND student_id = $3`,
     [attempt_id, question_id, student_id]
   );
-  return result.rows[0] || null;
-}
+  return result.rowCount > 0;
+};
 
-async function getStudentHistory(student_id) {
+exports.getStudentHistory = async function(student_id) {
   const result = await pool.query(
     `SELECT 
-       a.id,
-       a.score,
+       a.id as attempt_id,
        a.status,
+       a.score,
        a.started_at,
        a.submitted_at,
-       e.title AS exam_title,
-       s.name AS subject_name,
+       e.title as exam_title,
+       s.name as subject_name,
        se.access_code
      FROM attempts a
      JOIN exam_sessions se ON a.session_id = se.id
@@ -94,35 +82,28 @@ async function getStudentHistory(student_id) {
     [student_id]
   );
   return result.rows;
-}
+};
 
-async function getAttemptDetails(attempt_id, student_id) {
+exports.getAttemptDetails = async function(attempt_id, student_id) {
   const result = await pool.query(
     `SELECT 
-       a.*,
-       e.title AS exam_title,
-       s.name AS subject_name,
-       se.access_code,
-       se.start_at,
-       se.end_at,
-       e.duration
-     FROM attempts a
-     JOIN exam_sessions se ON a.session_id = se.id
-     JOIN exams e ON se.exam_id = e.id
-     JOIN subjects s ON e.subject_id = s.id
-     WHERE a.id = $1 AND a.student_id = $2`,
+       q.id as question_id,
+       q.content as question_content,
+       qa.id as answer_id,
+       qa.content as answer_content,
+       qa.is_correct,
+       aa.chosen_answer_id
+     FROM questions q
+     JOIN question_answers qa ON q.id = qa.question_id
+     LEFT JOIN attempt_answers aa ON q.id = aa.question_id AND aa.attempt_id = $1
+     WHERE q.id IN (
+       SELECT question_id FROM exam_set_questions esq
+       JOIN exam_sets es ON esq.exam_set_id = es.id
+       JOIN attempts a ON es.id = a.exam_set_id
+       WHERE a.id = $1 AND a.student_id = $2
+     )
+     ORDER BY q.id, qa.id`,
     [attempt_id, student_id]
   );
-  return result.rows[0] || null;
-}
-
-module.exports = {
-  createAttempt,
-  getAttemptBySessionAndStudent,
-  getAttemptById,
-  submitAttempt,
-  saveAnswer,
-  removeAnswer,
-  getStudentHistory,
-  getAttemptDetails,
+  return result.rows;
 };

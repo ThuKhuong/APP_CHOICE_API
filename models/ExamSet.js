@@ -1,6 +1,10 @@
 const pool = require("../db");
 
-async function createExamSet({ exam_id, code = 1 }) {
+// ============================================
+// Exam Set Service - Exports Inline Definition
+// ============================================
+
+exports.createExamSet = async ({ exam_id, code = 1 }) => {
   const result = await pool.query(
     `INSERT INTO exam_sets (exam_id, code, created_at) 
      VALUES ($1, $2, NOW()) 
@@ -8,9 +12,9 @@ async function createExamSet({ exam_id, code = 1 }) {
     [exam_id, code]
   );
   return result.rows[0];
-}
+};
 
-async function getExamSetsByExam(exam_id) {
+exports.getExamSetsByExam = async (exam_id) => {
   const result = await pool.query(
     `SELECT es.*, COUNT(esq.question_id) as question_count
      FROM exam_sets es
@@ -21,9 +25,9 @@ async function getExamSetsByExam(exam_id) {
     [exam_id]
   );
   return result.rows;
-}
+};
 
-async function getExamSetById(exam_set_id) {
+exports.getExamSetById = async (exam_set_id) => {
   const result = await pool.query(
     `SELECT es.*, e.title as exam_title, s.name as subject_name
      FROM exam_sets es
@@ -33,24 +37,24 @@ async function getExamSetById(exam_set_id) {
     [exam_set_id]
   );
   return result.rows[0] || null;
-}
+};
 
-async function deleteExamSet(exam_set_id) {
+exports.deleteExamSet = async (exam_set_id) => {
   const result = await pool.query(
     `DELETE FROM exam_sets WHERE id = $1 RETURNING *`,
     [exam_set_id]
   );
   return result.rows[0] || null;
-}
+};
 
-async function assignQuestionsToExamSet(exam_set_id, question_ids) {
+exports.assignQuestionsToExamSet = async (exam_set_id, question_ids) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    
+
     // Xóa câu hỏi cũ
     await client.query("DELETE FROM exam_set_questions WHERE exam_set_id = $1", [exam_set_id]);
-    
+
     // Thêm câu hỏi mới với order_index
     for (let i = 0; i < question_ids.length; i++) {
       await client.query(
@@ -59,7 +63,7 @@ async function assignQuestionsToExamSet(exam_set_id, question_ids) {
         [exam_set_id, question_ids[i], i + 1]
       );
     }
-    
+
     await client.query("COMMIT");
     return true;
   } catch (err) {
@@ -68,9 +72,9 @@ async function assignQuestionsToExamSet(exam_set_id, question_ids) {
   } finally {
     client.release();
   }
-}
+};
 
-async function getExamSetQuestions(exam_set_id) {
+exports.getExamSetQuestions = async (exam_set_id) => {
   const result = await pool.query(
     `SELECT 
        q.*, 
@@ -88,17 +92,17 @@ async function getExamSetQuestions(exam_set_id) {
     [exam_set_id]
   );
   return result.rows;
-}
+};
 
-async function checkOriginalExamSetExists(exam_id) {
+exports.checkOriginalExamSetExists = async (exam_id) => {
   const result = await pool.query(
     `SELECT id FROM exam_sets WHERE exam_id = $1 AND code = 1`,
     [exam_id]
   );
   return result.rows.length > 0;
-}
+};
 
-async function getOriginalExamSetQuestions(exam_id) {
+exports.getOriginalExamSetQuestions = async (exam_id) => {
   const result = await pool.query(
     `SELECT q.*, c.name as chapter_name
      FROM exam_set_questions esq
@@ -110,39 +114,43 @@ async function getOriginalExamSetQuestions(exam_id) {
     [exam_id]
   );
   return result.rows;
-}
+};
 
-async function getMaxCodeByExam(exam_id) {
+exports.getMaxCodeByExam = async (exam_id) => {
   const result = await pool.query(
     `SELECT COALESCE(MAX(code), 0) as max_code FROM exam_sets WHERE exam_id = $1`,
     [exam_id]
   );
   return result.rows[0].max_code;
-}
+};
 
-async function createShuffledExamSets(exam_id, count, originalQuestions) {
+exports.createShuffledExamSets = async (exam_id, count, originalQuestions) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    
-    const maxCode = await getMaxCodeByExam(exam_id);
+
+    const { max_code } = (await client.query(
+      `SELECT COALESCE(MAX(code), 0) as max_code FROM exam_sets WHERE exam_id = $1`,
+      [exam_id]
+    )).rows[0];
+
     const createdSets = [];
-    
+
     for (let i = 1; i <= count; i++) {
-      const newCode = maxCode + i;
-      
+      const newCode = max_code + i;
+
       // Tạo exam_set mới
       const examSetResult = await client.query(
         `INSERT INTO exam_sets (exam_id, code, created_at) 
          VALUES ($1, $2, NOW()) RETURNING id`,
         [exam_id, newCode]
       );
-      
+
       const examSetId = examSetResult.rows[0].id;
-      
+
       // Trộn câu hỏi
       const shuffledQuestions = [...originalQuestions].sort(() => Math.random() - 0.5);
-      
+
       // Thêm câu hỏi vào bộ đề
       for (let j = 0; j < shuffledQuestions.length; j++) {
         await client.query(
@@ -151,10 +159,10 @@ async function createShuffledExamSets(exam_id, count, originalQuestions) {
           [examSetId, shuffledQuestions[j].id, j + 1]
         );
       }
-      
+
       createdSets.push({ id: examSetId, code: newCode });
     }
-    
+
     await client.query("COMMIT");
     return createdSets;
   } catch (err) {
@@ -163,17 +171,4 @@ async function createShuffledExamSets(exam_id, count, originalQuestions) {
   } finally {
     client.release();
   }
-}
-
-module.exports = {
-  createExamSet,
-  getExamSetsByExam,
-  getExamSetById,
-  deleteExamSet,
-  assignQuestionsToExamSet,
-  getExamSetQuestions,
-  checkOriginalExamSetExists,
-  getOriginalExamSetQuestions,
-  getMaxCodeByExam,
-  createShuffledExamSets,
 };

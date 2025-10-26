@@ -11,7 +11,7 @@ function parseUserRoles(role) {
   }
 }
 
-async function registerStudent(req, res) {
+exports.registerStudent = async function(req, res) {
   const { full_name, email, password } = req.body;
   if (!full_name || !email || !password) {
     return res.status(400).json({ message: "Thiếu thông tin" });
@@ -42,9 +42,40 @@ async function registerStudent(req, res) {
     console.error("Lỗi đăng ký:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function login(req, res) {
+exports.registerTeacher = async function(req, res) {
+  const { full_name, email, password } = req.body;
+  if (!full_name || !email || !password) {
+    return res.status(400).json({ message: "Thiếu thông tin" });
+  }
+  
+  try {
+    const emailExists = await Auth.checkEmailExists(email);
+    if (emailExists) {
+      return res.status(400).json({ message: "Email đã được sử dụng" });
+    }
+    
+    const password_hash = await Auth.hashPassword(password);
+    const user = await Auth.createTeacherPending({ full_name, email, password_hash });
+    
+    res.status(201).json({ 
+      message: "Đăng ký thành công! Tài khoản đang chờ quản trị viên duyệt.", 
+      user: {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        role: user.role,
+        status: user.status
+      }
+    });
+  } catch (err) {
+    console.error("Lỗi đăng ký:", err.message);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+exports.login = async function(req, res) {
   const { email, password } = req.body;
   
   if (!email || !password) {
@@ -85,9 +116,9 @@ async function login(req, res) {
     
     res.status(500).json({ message: "Lỗi server" });
   }
-}
+};
 
-async function getProfile(req, res) {
+exports.getProfile = async function(req, res) {
   try {
     const user = await Auth.getUserById(req.user.id);
     if (!user) {
@@ -108,8 +139,6 @@ async function getProfile(req, res) {
     console.error("Lỗi lấy thông tin profile:", err.message);
     res.status(500).json({ message: "Lỗi server" });
   }
-}
-
-module.exports = { registerStudent, login, getProfile };
+};
 
 

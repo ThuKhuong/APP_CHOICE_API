@@ -1,11 +1,11 @@
 const pool = require("../db");
 
-async function findByEmail(email) {
+exports.findByEmail = async function(email) {
   const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
   return result.rows[0] || null;
-}
+};
 
-async function createStudent({ full_name, email, password_hash }) {
+exports.createStudent = async function({ full_name, email, password_hash }) {
   const result = await pool.query(
     `INSERT INTO users (full_name, email, password_hash, role, status)
      VALUES ($1, $2, $3, 'student', 1)
@@ -13,9 +13,9 @@ async function createStudent({ full_name, email, password_hash }) {
     [full_name, email, password_hash]
   );
   return result.rows[0];
-}
+};
 
-async function createTeacherPending({ full_name, email, password_hash }) {
+exports.createTeacherPending = async function({ full_name, email, password_hash }) {
   const result = await pool.query(
     `INSERT INTO users (full_name, email, password_hash, role, status)
      VALUES ($1, $2, $3, 'teacher', 0)
@@ -23,40 +23,32 @@ async function createTeacherPending({ full_name, email, password_hash }) {
     [full_name, email, password_hash]
   );
   return result.rows[0];
-}
+};
 
-async function listPendingTeachers() {
+exports.listPendingTeachers = async function() {
   const result = await pool.query(
-    "SELECT id, full_name, email, created_at FROM users WHERE role = 'teacher' AND COALESCE(status,0) = 0 ORDER BY created_at ASC"
+    "SELECT id, full_name, email FROM users WHERE role = 'teacher' AND COALESCE(status,0) = 0 ORDER BY id ASC"
   );
   return result.rows;
-}
+};
 
-async function approveTeacher(id) {
+exports.approveTeacher = async function(id) {
   const result = await pool.query(
     "UPDATE users SET status = 1 WHERE id = $1 AND role = 'teacher' AND COALESCE(status,0) = 0 RETURNING *",
     [id]
   );
   return result.rows[0] || null;
-}
+};
 
-async function rejectPendingTeacher(id) {
-  const result = await pool.query(
-    "DELETE FROM users WHERE id = $1 AND role = 'teacher' AND COALESCE(status,0) = 0 RETURNING *",
-    [id]
-  );
-  return result.rows[0] || null;
-}
-
-async function updateStatus(id, status) {
+exports.updateStatus = async function(id, status) {
   const result = await pool.query(
     "UPDATE users SET status = $1 WHERE id = $2 RETURNING id, full_name, email, status",
     [status, id]
   );
   return result.rows[0] || null;
-}
+};
 
-async function getAvailableProctors() {
+exports.getAvailableProctors = async function() {
   const result = await pool.query(
     `SELECT 
        u.id,
@@ -71,9 +63,9 @@ async function getAvailableProctors() {
      ORDER BY u.full_name`
   );
   return result.rows;
-}
+};
 
-async function getProctorById(id) {
+exports.getProctorById = async function(id) {
   const result = await pool.query(
     `SELECT id, full_name, email, role, status
      FROM users 
@@ -81,9 +73,9 @@ async function getProctorById(id) {
     [id]
   );
   return result.rows[0] || null;
-}
+};
 
-async function checkProctorConflict(proctorId, sessionId) {
+exports.checkProctorConflict = async function(proctorId, sessionId) {
   const result = await pool.query(
     `SELECT es.id, es.start_at, es.end_at, e.title
      FROM exam_sessions es
@@ -103,19 +95,44 @@ async function checkProctorConflict(proctorId, sessionId) {
     [proctorId, sessionId]
   );
   return result.rows;
-}
-
-module.exports = {
-  findByEmail,
-  createStudent,
-  createTeacherPending,
-  listPendingTeachers,
-  approveTeacher,
-  rejectPendingTeacher,
-  updateStatus,
-  getAvailableProctors,
-  getProctorById,
-  checkProctorConflict,
 };
 
+exports.getAllUsers = async function() {
+  const result = await pool.query(
+    "SELECT id, full_name, email, role, status FROM users ORDER BY id DESC"
+  );
+  return result.rows;
+};
 
+exports.getDashboardStats = async function() {
+  const [usersResult, teachersResult, examsResult, completedResult] = await Promise.all([
+    pool.query("SELECT COUNT(*) as count FROM users"),
+    pool.query("SELECT COUNT(*) as count FROM users WHERE role = 'teacher' AND status = 1"),
+    pool.query("SELECT COUNT(*) as count FROM exams"),
+    pool.query("SELECT COUNT(*) as count FROM attempts WHERE submitted_at IS NOT NULL")
+  ]);
+
+  return {
+    totalUsers: parseInt(usersResult.rows[0].count) || 0,
+    totalTeachers: parseInt(teachersResult.rows[0].count) || 0,
+    totalExams: parseInt(examsResult.rows[0].count) || 0,
+    completedExams: parseInt(completedResult.rows[0].count) || 0,
+  };
+};
+
+exports.updateUserRole = async function(id, role) {
+  const roleValue = Array.isArray(role) ? role.join(',') : role;
+  const result = await pool.query(
+    "UPDATE users SET role = $1 WHERE id = $2 RETURNING id, full_name, email, role",
+    [roleValue, id]
+  );
+  return result.rows[0] || null;
+};
+
+exports.updateUserStatus = async function(id, status) {
+  const result = await pool.query(
+    "UPDATE users SET status = $1 WHERE id = $2 RETURNING id, full_name, email, role, status",
+    [status, id]
+  );
+  return result.rows[0] || null;
+};
